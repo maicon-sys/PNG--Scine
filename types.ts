@@ -41,30 +41,36 @@ export interface FinancialYear {
   profit: number;
 }
 
-// --- VALUE MATRIX TYPES (STEP 0) ---
+// --- VALUE MATRIX TYPES (STEP 0) - REFACTORED ---
+
 export interface ValueSource {
   arquivo: string;
-  localizacao: string;
-  valor_original: number | string;
+  localizacao: string; // "p. 37, quadro 6.3"
+  valorOriginal: number | string; // Valor cru encontrado no arquivo
 }
 
 export interface ValueEntry {
   id: string;
-  categoria: string;
-  subcategoria?: string;
-  nome: string;
-  valor: number | string;
-  moeda?: string;
-  unidade?: string;
-  periodo_referencia?: string;
-  fontes_usadas: ValueSource[];
-  criterio_escolha: string;
-  status_resolucao: 'consolidado' | 'conflito_nao_resolvido';
+  categoria: string; // "receita", "custo_operacional", "investimento_capex", "assinantes", etc.
+  subcategoria?: string; // "OTT", "HUB", "B2C"
+  nome: string; // "Investimento total do projeto em 24 meses"
+  valor: number; // Valor numérico oficial para cálculos
+  moeda?: string; // "BRL", "USD", "%", "unidades"
+  unidade?: string; // "24_meses", "mensal", "total"
+  periodoReferencia?: string; // "M1-M24", "Ano 1"
+  
+  // Auditoria e Rastreabilidade
+  fontesUsadas: ValueSource[];
+  criterioEscolha: string; // "prioridade_documento_revisao", "coerencia_interna", etc.
+  statusResolucao: 'consolidado' | 'conflito_nao_resolvido';
+  
+  valorOficial?: boolean; // Se true, este é o número final a ser usado no plano
 }
 
 export interface ValueMatrix {
   entries: ValueEntry[];
   generatedAt: number;
+  summary?: string; // Resumo da consolidação
 }
 // -----------------------------------
 
@@ -105,16 +111,30 @@ export interface StrategicPath {
   cons: string[];
 }
 
+// --- DIAGNOSIS HISTORY TYPES ---
+export interface AnalysisGap {
+  id: string;
+  description: string; // "Falta o CAC"
+  status: 'OPEN' | 'RESOLVED' | 'PARTIAL';
+  resolutionScore: number; // 0 to 100
+  aiFeedback: string; // "O usuário enviou o relatório X que contém o CAC de R$ 50."
+  detectedAt: number; // Timestamp
+  resolvedAt?: number; // Timestamp
+}
+
 export interface DiagnosisResponse {
-  projectSummary: string; // What AI understood
-  strategicPaths: StrategicPath[]; // Options for the user
-  missingCriticalInfo: string[]; // What is missing for the bank
+  timestamp: number;
+  projectSummary: string; 
+  strategicPaths: StrategicPath[]; 
+  gaps: AnalysisGap[]; // List of gaps with their current status
+  overallReadiness: number; // 0 to 100 score
   suggestedSections: {
     chapter: string;
     title: string;
     description: string;
   }[];
 }
+// -------------------------------
 
 // --- NEW SAAS TYPES ---
 
@@ -133,8 +153,8 @@ export interface ProjectVersion {
   data: {
     sections: PlanSection[];
     contextState: AppContextState;
-    diagnosis: DiagnosisResponse | null;
-    consolidatedMarkdown?: string; // Snapshot of the full doc
+    diagnosisHistory: DiagnosisResponse[]; // Store history of diagnoses
+    consolidatedMarkdown?: string; 
   };
 }
 
@@ -146,7 +166,7 @@ export interface Project {
   currentData: {
     sections: PlanSection[];
     contextState: AppContextState;
-    diagnosis: DiagnosisResponse | null;
+    diagnosisHistory: DiagnosisResponse[]; // History is now part of project data
   };
   versions: ProjectVersion[];
 }
