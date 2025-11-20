@@ -5,6 +5,7 @@ export enum SectionStatus {
   ANALYZING = 'ANALYZING', // AI is checking if info is missing
   WAITING_USER = 'WAITING_USER', // User needs to answer questions
   GENERATING = 'GENERATING',
+  DRAFT = 'DRAFT', // Content generated, user review needed
   COMPLETED = 'COMPLETED',
 }
 

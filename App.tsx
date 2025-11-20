@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { 
   LayoutDashboard, FileText, Download, CheckCircle2, Loader2,
@@ -30,6 +31,8 @@ const StatusIcon = ({ status }: { status: SectionStatus }) => {
   switch (status) {
     case SectionStatus.COMPLETED:
       return <CheckCircle2 className="w-4 h-4 text-green-500" />;
+    case SectionStatus.DRAFT:
+      return <FileText className="w-4 h-4 text-blue-500" />;
     case SectionStatus.GENERATING:
     case SectionStatus.ANALYZING:
       return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
@@ -211,7 +214,7 @@ const App: React.FC = () => {
         const goal = activeProject.currentData.contextState.businessGoal;
         const matrix = activeProject.currentData.contextState.valueMatrix;
         const newContent = await generateSectionContent(section.title, section.description, '', context, goal, '', '', section.content, '', '', '', matrix);
-        updateSection(section.id, { content: newContent, status: SectionStatus.COMPLETED });
+        updateSection(section.id, { content: newContent, status: SectionStatus.DRAFT });
         setEditedContent(newContent);
       } catch(e) {
         console.error(e);
@@ -231,12 +234,12 @@ const App: React.FC = () => {
       const goal = activeProject.currentData.contextState.businessGoal;
       const matrix = activeProject.currentData.contextState.valueMatrix;
       const newContent = await generateSectionContent(section.title, section.description, '', context, goal, '', '', section.content, refinementInput, '', '', matrix);
-      updateSection(section.id, { content: newContent, status: SectionStatus.COMPLETED, lastRefinement: refinementInput });
+      updateSection(section.id, { content: newContent, status: SectionStatus.DRAFT, lastRefinement: refinementInput });
       setEditedContent(newContent);
       setRefinementInput('');
     } catch (e) {
       console.error(e);
-      updateSection(section.id, { status: SectionStatus.COMPLETED }); // revert to completed
+      updateSection(section.id, { status: SectionStatus.DRAFT }); // revert to draft on error
       alert(`Erro ao refinar conteúdo para ${section.title}`);
     } finally {
       setIsGenerating(false);
@@ -250,7 +253,7 @@ const App: React.FC = () => {
     try {
       const matrix = activeProject.currentData.contextState.valueMatrix;
       const { analysis, data } = await generateFinancialData(matrix);
-      updateSection(section.id, { content: analysis, financialData: data, status: SectionStatus.COMPLETED });
+      updateSection(section.id, { content: analysis, financialData: data, status: SectionStatus.DRAFT });
     } catch (e) {
       console.error(e);
       updateSection(section.id, { status: SectionStatus.PENDING });
@@ -262,7 +265,7 @@ const App: React.FC = () => {
 
   const handleSaveEdit = () => {
     if (!activeSection) return;
-    updateSection(activeSection.id, { content: editedContent, status: SectionStatus.COMPLETED });
+    updateSection(activeSection.id, { content: editedContent, status: SectionStatus.DRAFT });
     setIsEditing(false);
   };
 
@@ -523,20 +526,29 @@ const App: React.FC = () => {
                     <p className="text-sm text-blue-800 font-semibold">Nível de Prontidão</p>
                     <p className="text-3xl font-bold text-blue-700">{lastDiagnosis.overallReadiness || 0}%</p>
                  </div>
-                 {/* @FIX: Add Array.isArray check to prevent crash if `gaps` is not an array. */}
-                 {Array.isArray(lastDiagnosis.gaps) && lastDiagnosis.gaps.length > 0 && (
-                   <div className="mt-4 space-y-2">
-                      <h4 className="font-semibold text-sm">Pendências Críticas ({lastDiagnosis.gaps.filter(g => g.status === 'OPEN').length})</h4>
-                      <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
-                          {lastDiagnosis.gaps.filter(g => g.status === 'OPEN').map(gap => (
-                              <div key={gap.id} className="text-xs bg-white p-2 border-l-4 border-orange-400 rounded">
-                                  <span className={`font-bold mr-1 ${gap.severityLevel === 'A' ? 'text-red-600' : 'text-yellow-600'}`}>[{gap.severityLevel}]</span>
-                                  {gap.description}
-                              </div>
-                          ))}
-                      </div>
-                   </div>
-                 )}
+                 {/* @FIX: Refactored to use a ternary and a variable to ensure type safety and prevent crashes if `gaps` is not an array. */}
+                 {(() => {
+                   if (!Array.isArray(lastDiagnosis.gaps) || lastDiagnosis.gaps.length === 0) {
+                     return null;
+                   }
+                   // FIX: Explicitly cast `lastDiagnosis.gaps` to `AnalysisGap[]` to resolve a type inference issue where `openGaps` was becoming `unknown`.
+                   const openGaps = (lastDiagnosis.gaps as AnalysisGap[]).filter(g => g.status === 'OPEN');
+                   return (
+                     <div className="mt-4 space-y-2">
+                       <h4 className="font-semibold text-sm">Pendências Críticas ({openGaps.length})</h4>
+                       {openGaps.length > 0 && (
+                         <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
+                           {openGaps.map(gap => (
+                             <div key={gap.id} className="text-xs bg-white p-2 border-l-4 border-orange-400 rounded">
+                               <span className={`font-bold mr-1 ${gap.severityLevel === 'A' ? 'text-red-600' : 'text-yellow-600'}`}>[{gap.severityLevel}]</span>
+                               {gap.description}
+                             </div>
+                           ))}
+                         </div>
+                       )}
+                     </div>
+                   );
+                 })()}
               </div>
             )}
             

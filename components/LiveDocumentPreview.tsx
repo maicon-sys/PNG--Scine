@@ -44,45 +44,45 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     
     try {
       const { jsPDF } = window.jspdf;
-      const canvas = await window.html2canvas(input, { 
-          scale: 2,
-          logging: false,
-          useCORS: true,
-          windowWidth: input.scrollWidth,
-          windowHeight: input.scrollHeight,
-      });
-
-      const imgData = canvas.toDataURL('image/png');
-      
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'pt',
-        format: 'a4'
-      });
-      
+      // Get all page elements
+      const pageElements = input.querySelectorAll('.page-a4');
+      const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      
-      const canvasWidth = canvas.width;
-      const canvasHeight = canvas.height;
-      
-      const ratio = canvasWidth / pdfWidth;
-      const canvasHeightInPdfPoints = canvasHeight / ratio;
-      
-      let position = 0;
-      
-      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, canvasHeightInPdfPoints);
-      
-      let heightLeft = canvasHeightInPdfPoints - pdfHeight;
-      
-      while (heightLeft > 0) {
-        position -= pdfHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, canvasHeightInPdfPoints);
+
+      for (let i = 0; i < pageElements.length; i++) {
+        const page = pageElements[i] as HTMLElement;
+        const canvas = await window.html2canvas(page, {
+          scale: 2, // Higher scale for better quality
+          useCORS: true,
+          logging: false,
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const imgProps = pdf.getImageProperties(imgData);
+        const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        // Add first page
+        if (i > 0) {
+            pdf.addPage();
+        }
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
         heightLeft -= pdfHeight;
+
+        // Add extra pages if content overflows
+        while (heightLeft > 0) {
+          position -= pdfHeight;
+          pdf.addPage();
+          pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
+          heightLeft -= pdfHeight;
+        }
       }
       
       pdf.save(`${projectName.replace(/[\s/]/g, '_')}_Plano_de_Negocios.pdf`);
+
     } catch (e) {
       console.error("PDF generation failed", e);
       alert("Falha ao gerar o PDF. Verifique o console para mais detalhes.");
@@ -104,10 +104,9 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
 
   const getGlossaryTerms = (text: string) => {
     const termsFound: string[] = [];
-    const upperText = text.toUpperCase();
+    if (!text) return termsFound;
     
     Object.keys(GLOSSARY_TERMS).forEach(term => {
-      // Check for whole word matches to avoid partials (e.g. "A" in "APPLE")
       const regex = new RegExp(`\\b${term}\\b`, 'i');
       if (regex.test(text)) {
         termsFound.push(`**${term}**: ${GLOSSARY_TERMS[term]}`);
@@ -131,7 +130,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
   };
 
   return (
-    <div className="min-h-screen bg-gray-200 flex flex-col">
+    <div className="min-h-screen bg-gray-400 flex flex-col">
       {/* Header Toolbar */}
       <div className="bg-white border-b border-gray-300 p-4 sticky top-0 z-50 flex justify-between items-center shadow-md print:hidden">
         <div className="flex items-center gap-4">
@@ -168,24 +167,23 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
       </div>
 
       {/* Document Canvas (A4 Simulation) */}
-      <div className="flex-1 overflow-y-auto p-8 flex justify-center">
-        <div 
-          ref={docRef} 
-          className="bg-white w-[210mm] min-h-[297mm] shadow-xl p-[20mm] print:p-0 print:shadow-none print:w-full text-black"
-        >
+      <div className="flex-1 overflow-y-auto p-8">
+        <div ref={docRef}>
             {/* Cover Page */}
-            <div className="flex flex-col justify-center items-center h-[250mm] mb-[20mm] border-b-2 border-gray-900 pb-10">
-                <h1 className="text-4xl font-bold text-center text-black mb-4 uppercase tracking-wider">{projectName}</h1>
-                <h2 className="text-2xl text-center text-gray-600 mb-12">Plano de Negócios</h2>
-                
-                <div className="mt-auto text-center text-gray-500 text-sm">
-                    <p>Documento Gerado por Stratégia AI</p>
-                    <p>{new Date().toLocaleDateString()}</p>
+            <div className="page-a4 bg-white w-[210mm] h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 flex flex-col">
+                <div className="flex flex-col justify-center items-center h-full">
+                    <h1 className="text-4xl font-bold text-center text-black mb-4 uppercase tracking-wider">{projectName}</h1>
+                    <h2 className="text-2xl text-center text-gray-600 mb-12">Plano de Negócios</h2>
+                    
+                    <div className="mt-auto text-center text-gray-500 text-sm">
+                        <p>Documento Gerado por Stratégia AI</p>
+                        <p>{new Date().toLocaleDateString()}</p>
+                    </div>
                 </div>
             </div>
 
-            {/* Table of Contents (Auto-generated) */}
-            <div className="mb-[20mm] break-after-page">
+            {/* Table of Contents */}
+            <div className="page-a4 bg-white w-[210mm] h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 break-before-page">
                 <h2 className="text-2xl font-bold mb-6 text-black border-b border-black pb-2">Sumário</h2>
                 <div className="space-y-2">
                     {sortedSections.map(section => (
@@ -197,43 +195,34 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
                 </div>
             </div>
 
-            {/* Content Content */}
-            <div className="space-y-10">
-                {sortedSections.length === 0 ? (
-                    <div className="text-center text-gray-400 py-20 italic">
-                        Nenhum conteúdo gerado ainda. Volte ao editor e complete as seções.
-                    </div>
-                ) : (
-                    sortedSections.map(section => {
-                        const glossaryTerms = getGlossaryTerms(section.content);
-                        return (
-                            <div key={section.id} className="mb-12 break-inside-avoid">
-                                <div className="flex items-baseline gap-2 mb-4 border-b border-gray-200 pb-1">
-                                    <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">{section.id}</span>
-                                    <h2 className="text-xl font-bold text-black">{section.title}</h2>
-                                </div>
-                                <div className="prose prose-slate max-w-none text-justify text-black">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                        {section.content}
-                                    </ReactMarkdown>
-                                </div>
-                                
-                                {/* Dynamic Glossary Footer */}
-                                {glossaryTerms.length > 0 && (
-                                    <div className="mt-6 pt-3 border-t border-gray-300 text-[10px] text-gray-500 font-mono leading-tight">
-                                        {glossaryTerms.map((term, idx) => (
-                                            <span key={idx} className="mr-3 inline-block">
-                                                <ReactMarkdown components={{p: ({node, ...props}) => <span {...props} />}}>{term}</ReactMarkdown>
-                                                {idx < glossaryTerms.length - 1 && ";"}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
+            {/* Content Pages */}
+            {sortedSections.length > 0 && sortedSections.map(section => {
+                const glossaryTerms = getGlossaryTerms(section.content);
+                return (
+                    <div key={section.id} className="page-a4 bg-white w-[210mm] min-h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 break-before-page">
+                        <div className="flex items-baseline gap-2 mb-4 border-b border-gray-200 pb-1">
+                            <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">{section.id}</span>
+                            <h2 className="text-xl font-bold text-black">{section.title}</h2>
+                        </div>
+                        <div className="prose prose-slate max-w-none text-justify text-black">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                {section.content}
+                            </ReactMarkdown>
+                        </div>
+                        
+                        {glossaryTerms.length > 0 && (
+                            <div className="mt-6 pt-3 border-t border-gray-300 text-[10px] text-gray-500 font-mono leading-tight">
+                                {glossaryTerms.map((term, idx) => (
+                                    <span key={idx} className="mr-3 inline-block">
+                                        <ReactMarkdown components={{p: ({node, ...props}) => <span {...props} />}}>{term}</ReactMarkdown>
+                                        {idx < glossaryTerms.length - 1 && ";"}
+                                    </span>
+                                ))}
                             </div>
-                        );
-                    })
-                )}
-            </div>
+                        )}
+                    </div>
+                );
+            })}
         </div>
       </div>
     </div>
