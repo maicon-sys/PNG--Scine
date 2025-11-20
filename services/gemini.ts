@@ -11,6 +11,20 @@ const getAIClient = () => {
     return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
+// Helper to clean JSON string from Markdown fences
+const cleanJsonString = (text: string): string => {
+    if (!text) return "{}";
+    // Remove markdown code blocks if present
+    let cleaned = text.replace(/```json\n?|```/g, '');
+    // Remove any text before the first '{' and after the last '}'
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+        cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+    }
+    return cleaned.trim();
+};
+
 // --- ETAPA 0: MATRIZ DE VALORES ---
 export const generateValueMatrix = async (context: string): Promise<ValueMatrix> => {
     const ai = getAIClient();
@@ -53,6 +67,7 @@ export const generateValueMatrix = async (context: string): Promise<ValueMatrix>
             model: model,
             contents: prompt,
             config: {
+                maxOutputTokens: 8192, // Increased limit
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
@@ -91,7 +106,8 @@ export const generateValueMatrix = async (context: string): Promise<ValueMatrix>
             }
         });
         
-        const json = JSON.parse(result.text || "{\"entries\": []}");
+        const cleanedJson = cleanJsonString(result.text || "{}");
+        const json = JSON.parse(cleanedJson);
         return {
             entries: json.entries || [],
             generatedAt: Date.now()
@@ -131,7 +147,7 @@ export const generateMissingQuestions = async (
                 responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
             }
         });
-        return JSON.parse(result.text || "[]");
+        return JSON.parse(cleanJsonString(result.text || "[]"));
     } catch (e) {
         console.error(e);
         return [];
@@ -207,7 +223,10 @@ export const generateSectionContent = async (
     const result = await ai.models.generateContent({
         model: model,
         contents: prompt,
-        config: { tools: [{ googleSearch: {} }] }
+        config: { 
+            maxOutputTokens: 8192,
+            tools: [{ googleSearch: {} }] 
+        }
     });
 
     return result.text || "Erro ao gerar conteúdo.";
@@ -238,6 +257,7 @@ export const generateFinancialData = async (
             model: model,
             contents: prompt,
             config: {
+                maxOutputTokens: 8192,
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
@@ -248,7 +268,8 @@ export const generateFinancialData = async (
                 }
             }
         });
-        const json = JSON.parse(result.text || "{}");
+        const cleanedJson = cleanJsonString(result.text || "{}");
+        const json = JSON.parse(cleanedJson);
         return { analysis: json.analysis || "Erro.", data: json.data || [] };
     } catch (e) { console.error(e); return { analysis: "Erro.", data: [] }; }
 };
@@ -308,6 +329,7 @@ export const generateGlobalDiagnosis = async (
             model: model,
             contents: prompt,
             config: {
+                maxOutputTokens: 8192, // Increase token limit to avoid JSON truncation
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
@@ -347,14 +369,18 @@ export const generateGlobalDiagnosis = async (
                 }
             }
         });
-        const response = JSON.parse(result.text || "{}");
+        
+        // Clean the string before parsing to handle potential issues
+        const cleanedJson = cleanJsonString(result.text || "{}");
+        const response = JSON.parse(cleanedJson);
+        
         return {
             ...response,
             timestamp: Date.now()
         };
     } catch (e) {
         console.error("Erro no Diagnóstico:", e);
-        throw new Error("Falha no diagnóstico");
+        throw new Error("Falha no diagnóstico. A resposta da IA foi interrompida ou inválida. Tente enviar menos arquivos de uma vez.");
     }
 };
 
