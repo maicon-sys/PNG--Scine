@@ -1,5 +1,6 @@
 
 
+
 export enum SectionStatus {
   PENDING = 'PENDING',
   ANALYZING = 'ANALYZING', // AI is checking if info is missing
@@ -7,6 +8,7 @@ export enum SectionStatus {
   GENERATING = 'GENERATING',
   DRAFT = 'DRAFT', // Content generated, user review needed
   COMPLETED = 'COMPLETED',
+  REVIEW_ALERT = 'REVIEW_ALERT', // Validation failed, user needs to review
 }
 
 export enum SectionType {
@@ -34,6 +36,7 @@ export interface PlanSection {
   isLocked?: boolean; // If true, user cannot access until dependencies met
   isAiGenerated?: boolean; // Flag to indicate if this section was dynamically created by AI
   lastRefinement?: string; // Store the last user instruction for refinement
+  validationFeedback?: string; // Feedback from the validation audit
 }
 
 export interface FinancialYear {
@@ -91,6 +94,8 @@ export interface UploadedFile {
   content: string;
   type: 'text' | 'image';
   isRestored?: boolean; // Flag to indicate file needs re-upload after refresh
+  sourceSectionId?: string; // ID of the PlanSection that generated this file
+  isGenerated?: boolean; // True if generated from a completed section
 }
 
 export interface ProjectAsset {

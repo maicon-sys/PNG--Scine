@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, ValueMatrix, AnalysisGap } from "../types";
+import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, ValueMatrix, AnalysisGap, BusinessGoal } from "../types";
 import { BRDE_FSA_RULES, SCINE_CONTEXT } from "../constants";
 
 // Initialize the client
@@ -179,4 +179,75 @@ export const generateProjectImage = async (promptDescription: string): Promise<s
         if (!base64) throw new Error("Nenhuma imagem foi gerada.");
         return base64;
     } catch (e) { console.error("Erro na geração de imagem:", e); throw e; }
+};
+
+export const validateCompletedSections = async (
+    completedSections: { id: string, title: string, content: string }[],
+    valueMatrix: ValueMatrix | null,
+    methodology: string,
+    goal: BusinessGoal
+): Promise<{ sectionId: string; isValid: boolean; feedback: string }[]> => {
+    const ai = getAIClient();
+    const model = 'gemini-2.5-flash';
+
+    const matrixContext = valueMatrix ? JSON.stringify(valueMatrix.entries.filter(e => e.valorOficial).map(e => ({ nome: e.nome, valor: e.valor }))) : "Matriz de dados não disponível.";
+    const sectionsContext = JSON.stringify(completedSections);
+
+    const prompt = `
+    Você é um Auditor Sênior de Projetos do BRDE, especialista na metodologia SEBRAE.
+    Sua tarefa é validar se as seções CONCLUÍDAS de um plano de negócios estão alinhadas com os objetivos e dados do projeto.
+
+    OBJETIVO PRINCIPAL DO PLANO: "${goal}"
+    METODOLOGIA APLICADA: "${methodology}"
+    FONTE DA VERDADE NUMÉRICA (MATRIZ DE DADOS): """${matrixContext}"""
+    SEÇÕES CONCLUÍDAS PARA ANÁLISE: """${sectionsContext}"""
+
+    INSTRUÇÕES DE AUDITORIA:
+    1.  **Validação Cruzada de Dados:** Para cada seção, verifique se os valores numéricos mencionados no texto são consistentes com a "FONTE DA VERDADE NUMÉRICA". Aponte qualquer discrepância.
+    2.  **Aderência à Metodologia:** Verifique se o conteúdo de cada seção atende às diretrizes da "${methodology}". Por exemplo, uma análise de mercado deve conter TAM/SAM/SOM se a metodologia exigir.
+    3.  **Alinhamento ao Objetivo:** Verifique se o tom, os argumentos e as conclusões de cada seção estão alinhados com o "${goal}". Um plano para financiamento BRDE deve focar em capacidade de pagamento, garantias e impacto regional.
+    4.  **Feedback Acionável:** Se uma seção falhar em qualquer critério, forneça um feedback claro, conciso e construtivo, explicando O QUÊ está errado e COMO corrigir. Seja direto.
+
+    RESPONDA ESTRITAMENTE NO SEGUINTE FORMATO JSON:
+    `;
+
+    try {
+        const result = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+                maxOutputTokens: 8192,
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        validationResults: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    sectionId: { type: Type.STRING },
+                                    isValid: { type: Type.BOOLEAN },
+                                    feedback: { type: Type.STRING, description: "Feedback construtivo se isValid for false." }
+                                },
+                                required: ["sectionId", "isValid", "feedback"]
+                            }
+                        }
+                    },
+                    required: ["validationResults"]
+                }
+            }
+        });
+
+        const json = JSON.parse(cleanJsonString(result.text || '{}'));
+        return Array.isArray(json.validationResults) ? json.validationResults : [];
+    } catch (e) {
+        console.error("Erro na validação das seções:", e);
+        // Return a generic error for all sections
+        return completedSections.map(s => ({
+            sectionId: s.id,
+            isValid: false,
+            feedback: "Ocorreu um erro no serviço de validação. A IA pode estar indisponível. Tente novamente."
+        }));
+    }
 };

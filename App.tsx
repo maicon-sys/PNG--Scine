@@ -1,18 +1,20 @@
 
+
+
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { 
   LayoutDashboard, FileText, Download, CheckCircle2, Loader2,
   ChevronRight, ChevronDown, Edit3, Save, Wand2,
   Lock, RotateCcw, ArrowRightCircle, RefreshCw, Paperclip, TableProperties,
   LogOut, ArrowLeft, Cloud, CloudLightning, Stethoscope,
-  History, AlertTriangle, Check
+  History, AlertTriangle, Check, ShieldCheck
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { PlanSection, AppContextState, SectionStatus, SectionType, FinancialYear, BusinessGoal, ProjectAsset, DiagnosisResponse, UploadedFile, User, Project, ProjectVersion, AnalysisGap } from './types';
 import { INITIAL_SECTIONS, DEFAULT_METHODOLOGY, IMAGE_PROMPTS } from './constants';
-import { generateSectionContent, generateFinancialData, generateGlobalDiagnosis, generateProjectImage, generateValueMatrix } from './services/gemini';
+import { generateSectionContent, generateFinancialData, generateGlobalDiagnosis, generateProjectImage, generateValueMatrix, validateCompletedSections } from './services/gemini';
 import { ContextManager } from './components/ContextManager';
 import { FinancialChart } from './components/FinancialChart';
 import { ValueMatrixViewer } from './components/ValueMatrixViewer';
@@ -23,7 +25,7 @@ import { GoogleDriveIntegration } from './components/GoogleDriveIntegration';
 
 
 const STORAGE_KEY_PROJECTS = 'scine_saas_projects';
-const STORAGE_KEY_USER = 'scine_saas_user';
+const STORAGE_key_user = 'scine_saas_user';
 
 type ViewState = 'auth' | 'dashboard' | 'editor' | 'preview';
 
@@ -38,6 +40,8 @@ const StatusIcon = ({ status }: { status: SectionStatus }) => {
       return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
     case SectionStatus.WAITING_USER:
       return <Edit3 className="w-4 h-4 text-yellow-500" />;
+    case SectionStatus.REVIEW_ALERT:
+        return <AlertTriangle className="w-4 h-4 text-orange-500" />;
     default:
       return <div className="w-2 h-2 rounded-full bg-gray-300"></div>;
   }
@@ -59,6 +63,7 @@ const App: React.FC = () => {
   const [driveSyncInfo, setDriveSyncInfo] = useState<{ folder: string, fileId: string } | null>(null);
 
   const [isDiagnosisLoading, setIsDiagnosisLoading] = useState(false);
+  const [isValidationLoading, setIsValidationLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
   // Edit Mode State
@@ -86,10 +91,21 @@ const App: React.FC = () => {
 
   const updateSection = useCallback((sectionId: string, updates: Partial<PlanSection>) => {
     if (!activeProject) return;
+
+    const currentSection = activeProject.currentData.sections.find(s => s.id === sectionId);
+    let updatedFiles = activeProject.currentData.contextState.uploadedFiles;
+
+    // If a completed section is being modified (e.g., edited), remove its generated context file.
+    if (currentSection && currentSection.status === SectionStatus.COMPLETED && updates.status && updates.status !== SectionStatus.COMPLETED) {
+        updatedFiles = updatedFiles.filter(f => f.sourceSectionId !== sectionId);
+    }
+
     const newSections = activeProject.currentData.sections.map(s => 
       s.id === sectionId ? { ...s, ...updates } : s
     );
-    setProjectData(activeProject.id, { sections: newSections });
+
+    const newContextState = { ...activeProject.currentData.contextState, uploadedFiles: updatedFiles };
+    setProjectData(activeProject.id, { sections: newSections, contextState: newContextState });
   }, [activeProject, setProjectData]);
   
   // --- LIFECYCLE & PERSISTENCE ---
@@ -177,9 +193,16 @@ const App: React.FC = () => {
   const getFullContext = useCallback(() => {
     if (!activeProject) return "";
     const { contextState } = activeProject.currentData;
-    const restoredFileWarning = contextState.uploadedFiles.some(f => f.isRestored) ? "\nAVISO: Alguns arquivos foram restaurados da memória sem seu conteúdo completo. Baseie-se apenas em arquivos recém-adicionados para novas seções." : "";
+    const restoredFileWarning = contextState.uploadedFiles.some(f => f.isRestored) ? "\nAVISO: Alguns arquivos foram restaurados da memória sem seu conteúdo completo." : "";
     
-    return `OBJETIVO: ${contextState.businessGoal}\nMETODOLOGIA: ${contextState.methodology}\nANOTAÇÕES: ${contextState.rawContext}\nARQUIVOS: ${contextState.uploadedFiles.filter(f => f.type === 'text' && f.content && !f.isRestored).map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n')}${restoredFileWarning}`;
+    const userUploadedFiles = contextState.uploadedFiles.filter(f => !f.isGenerated && f.type === 'text' && f.content && !f.isRestored);
+    const completedSectionsContent = contextState.uploadedFiles.filter(f => f.isGenerated && f.type === 'text' && f.content);
+
+    const truthSourceContext = completedSectionsContent.length > 0
+        ? `\n\n--- FONTES DA VERDADE (SEÇÕES CONCLUÍDAS E APROVADAS PELO USUÁRIO) ---\n${completedSectionsContent.map(f => `CONTEÚDO DE: ${f.name.replace('[CONCLUÍDO] ', '')}\n${f.content}`).join('\n\n')}`
+        : "";
+
+    return `OBJETIVO: ${contextState.businessGoal}\nMETODOLOGIA: ${contextState.methodology}\nANOTAÇÕES: ${contextState.rawContext}\nARQUIVOS DO USUÁRIO: ${userUploadedFiles.map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n')}${truthSourceContext}${restoredFileWarning}`;
   }, [activeProject]);
   
   const handleRunDiagnosis = useCallback(async () => {
@@ -205,10 +228,55 @@ const App: React.FC = () => {
     }
   }, [activeProject, getFullContext, setProjectData, updateSection]);
 
+    const handleValidateProject = async () => {
+        if (!activeProject) return;
+
+        const completedSections = activeProject.currentData.sections
+            .filter(s => s.status === SectionStatus.COMPLETED)
+            .map(s => ({ id: s.id, title: s.title, content: s.content }));
+
+        if (completedSections.length === 0) {
+            alert("Nenhuma seção foi marcada como 'Concluída' para ser validada.");
+            return;
+        }
+
+        setIsValidationLoading(true);
+        try {
+            const { contextState } = activeProject.currentData;
+            const validationResults = await validateCompletedSections(
+                completedSections,
+                contextState.valueMatrix!,
+                contextState.methodology,
+                contextState.businessGoal
+            );
+            
+            let allValid = true;
+            validationResults.forEach(result => {
+                if (!result.isValid) {
+                    allValid = false;
+                    updateSection(result.sectionId, {
+                        status: SectionStatus.REVIEW_ALERT,
+                        validationFeedback: result.feedback
+                    });
+                }
+            });
+
+            if (allValid) {
+                alert("Validação concluída! Todas as seções estão alinhadas com os objetivos e dados do projeto.");
+            }
+
+        } catch (e) {
+            console.error("Validation failed:", e);
+            alert("Ocorreu um erro durante a validação. Verifique o console.");
+        } finally {
+            setIsValidationLoading(false);
+        }
+    };
+
   const handleGenerateSection = async (section: PlanSection) => {
       if (!activeProject) return;
       setIsGenerating(true);
-      updateSection(section.id, { status: SectionStatus.GENERATING });
+      updateSection(section.id, { status: SectionStatus.GENERATING, validationFeedback: '' });
       try {
         const context = getFullContext();
         const goal = activeProject.currentData.contextState.businessGoal;
@@ -228,7 +296,7 @@ const App: React.FC = () => {
   const handleRefineSection = async (section: PlanSection) => {
     if (!activeProject || !refinementInput.trim()) return;
     setIsGenerating(true);
-    updateSection(section.id, { status: SectionStatus.GENERATING });
+    updateSection(section.id, { status: SectionStatus.GENERATING, validationFeedback: '' });
     try {
       const context = getFullContext();
       const goal = activeProject.currentData.contextState.businessGoal;
@@ -249,7 +317,7 @@ const App: React.FC = () => {
   const handleGenerateFinancials = async (section: PlanSection) => {
     if (!activeProject) return;
     setIsGenerating(true);
-    updateSection(section.id, { status: SectionStatus.GENERATING });
+    updateSection(section.id, { status: SectionStatus.GENERATING, validationFeedback: '' });
     try {
       const matrix = activeProject.currentData.contextState.valueMatrix;
       const { analysis, data } = await generateFinancialData(matrix);
@@ -265,7 +333,7 @@ const App: React.FC = () => {
 
   const handleSaveEdit = () => {
     if (!activeSection) return;
-    updateSection(activeSection.id, { content: editedContent, status: SectionStatus.DRAFT });
+    updateSection(activeSection.id, { content: editedContent, status: SectionStatus.DRAFT, validationFeedback: '' });
     setIsEditing(false);
   };
 
@@ -274,6 +342,31 @@ const App: React.FC = () => {
     setEditedContent(activeSection.content);
     setIsEditing(false);
   };
+
+    const handleMarkAsCompleted = (sectionId: string) => {
+        if (!activeProject) return;
+        const section = activeProject.currentData.sections.find(s => s.id === sectionId);
+        if (!section) return;
+
+        const generatedFile: UploadedFile = {
+            name: `[CONCLUÍDO] ${section.title}.txt`,
+            content: section.content,
+            type: 'text',
+            isGenerated: true,
+            sourceSectionId: section.id,
+        };
+
+        const newFiles = [
+            // Remove any old version of this generated file before adding the new one
+            ...activeProject.currentData.contextState.uploadedFiles.filter(f => f.sourceSectionId !== section.id),
+            generatedFile
+        ];
+
+        // First, update the section status itself
+        updateSection(section.id, { status: SectionStatus.COMPLETED, validationFeedback: '' });
+        // Then, update the project data with the new context file
+        setProjectData(activeProject.id, { contextState: { ...activeProject.currentData.contextState, uploadedFiles: newFiles }});
+    };
 
   // --- RENDER ---
   if (currentView === 'auth' || !currentUser) return <AuthScreen onLogin={handleLogin} />;
@@ -419,6 +512,18 @@ const App: React.FC = () => {
                         <p className="text-slate-600 mt-2 text-md leading-relaxed border-l-4 border-blue-200 pl-4">{activeSection.description}</p>
                     </div>
 
+                    {activeSection.validationFeedback && (
+                        <div className="mb-4 p-4 bg-orange-50 border-l-4 border-orange-400 text-orange-800 rounded-r-lg">
+                            <div className="flex items-start">
+                                <AlertTriangle className="w-5 h-5 mr-3 mt-1 shrink-0" />
+                                <div>
+                                    <h4 className="font-bold">Alerta de Revisão da IA</h4>
+                                    <p className="text-sm mt-1">{activeSection.validationFeedback}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {activeSection.type === SectionType.FINANCIAL ? (
                         <div>
                              <button onClick={() => handleGenerateFinancials(activeSection)} disabled={isGenerating} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-slate-300">
@@ -491,8 +596,8 @@ const App: React.FC = () => {
                                     {activeSection.content ? 'Regerar com IA' : 'Gerar com IA'}
                                 </button>
                                 <button 
-                                  onClick={() => updateSection(activeSection.id, {status: SectionStatus.COMPLETED})} 
-                                  disabled={activeSection.status === SectionStatus.COMPLETED}
+                                  onClick={() => handleMarkAsCompleted(activeSection.id)} 
+                                  disabled={activeSection.status === SectionStatus.COMPLETED || !activeSection.content}
                                   className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors bg-green-100 text-green-800 hover:bg-green-200 disabled:bg-green-50 disabled:text-green-500 disabled:cursor-not-allowed"
                                 >
                                     <Check className="w-4 h-4" /> 
@@ -513,9 +618,13 @@ const App: React.FC = () => {
         {/* Right Sidebar - Context & Diagnosis */}
         <aside className="w-1/3 max-w-md flex-shrink-0 bg-white border-l border-slate-200 overflow-y-auto p-6 space-y-6">
             <div>
-                 <button onClick={handleRunDiagnosis} disabled={isDiagnosisLoading} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition-colors disabled:bg-slate-300">
+                 <button onClick={handleRunDiagnosis} disabled={isDiagnosisLoading || isValidationLoading} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition-colors disabled:bg-slate-300">
                     {isDiagnosisLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Stethoscope className="w-5 h-5" />}
                     {lastDiagnosis ? 'Atualizar Diagnóstico' : 'Rodar Diagnóstico Global'}
+                </button>
+                <button onClick={handleValidateProject} disabled={isValidationLoading || isDiagnosisLoading} className="w-full flex items-center justify-center gap-2 px-4 py-2 mt-2 border border-orange-300 bg-orange-50 text-orange-800 rounded-lg font-bold hover:bg-orange-100 transition-colors disabled:bg-slate-300 disabled:text-white">
+                    {isValidationLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
+                    Validar Seções Concluídas
                 </button>
             </div>
             
@@ -531,8 +640,8 @@ const App: React.FC = () => {
                    if (!Array.isArray(lastDiagnosis.gaps) || lastDiagnosis.gaps.length === 0) {
                      return null;
                    }
-                   // FIX: Explicitly cast `lastDiagnosis.gaps` to `AnalysisGap[]` to resolve a type inference issue where `openGaps` was becoming `unknown`.
-                   const openGaps = (lastDiagnosis.gaps as AnalysisGap[]).filter(g => g.status === 'OPEN');
+                   {/* FIX: Removed problematic type cast and added a guard for `g` to ensure type safety and prevent inference issues. */}
+                   const openGaps = lastDiagnosis.gaps.filter(g => g && g.status === 'OPEN');
                    return (
                      <div className="mt-4 space-y-2">
                        <h4 className="font-semibold text-sm">Pendências Críticas ({openGaps.length})</h4>

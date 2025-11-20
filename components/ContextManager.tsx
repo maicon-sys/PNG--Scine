@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Upload, FileText, Trash2, Settings, Plus, Target, Loader2, ImageIcon, AlertCircle } from 'lucide-react';
+import { Upload, FileText, Trash2, Settings, Plus, Target, Loader2, ImageIcon, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { AppContextState, UploadedFile, BusinessGoal, ProjectAsset } from '../types';
 
 interface ContextManagerProps {
@@ -217,14 +217,14 @@ ${state.assets.map(a => `- ${a.description} (${a.type})`).join('\n')}
         {state.uploadedFiles.length > 0 && (
           <div className="mt-4 space-y-2 max-h-40 overflow-y-auto">
             {state.uploadedFiles.map((file, idx) => (
-              <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-100 text-sm">
+              <div key={idx} className={`flex items-center justify-between p-2 rounded border text-sm ${file.isGenerated ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'}`}>
                 <div className="flex items-center gap-2 overflow-hidden">
-                  {file.type === 'image' ? <ImageIcon className="w-4 h-4 text-purple-500" /> : <FileText className="w-4 h-4 text-gray-500" />}
-                  <span className={`truncate ${file.isRestored ? 'text-gray-400 italic' : 'text-gray-900'}`}>
+                  {file.isGenerated ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : (file.type === 'image' ? <ImageIcon className="w-4 h-4 text-purple-500" /> : <FileText className="w-4 h-4 text-gray-500" />)}
+                  <span className={`truncate ${file.isRestored ? 'text-gray-400 italic' : 'text-gray-900'} ${file.isGenerated ? 'font-medium text-green-900' : ''}`}>
                       {file.name} {file.isRestored && '(Conteúdo não carregado)'}
                   </span>
                 </div>
-                <button onClick={() => removeFile(idx)} className="text-red-500 hover:text-red-700 p-1">
+                <button onClick={() => removeFile(idx)} className="text-red-500 hover:text-red-700 p-1 disabled:text-gray-400" disabled={file.isGenerated}>
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
