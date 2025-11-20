@@ -1,4 +1,5 @@
 
+
 export enum SectionStatus {
   PENDING = 'PENDING',
   ANALYZING = 'ANALYZING', // AI is checking if info is missing
@@ -111,16 +112,26 @@ export interface StrategicPath {
   cons: string[];
 }
 
-// --- DIAGNOSIS HISTORY TYPES ---
+// --- DIAGNOSIS HISTORY TYPES (REFACTORED) ---
+export type GapSeverity = 'A' | 'B' | 'C'; 
+/**
+ * A = Lacuna Grave (Informação inexistente)
+ * B = Lacuna Moderada (Parcial ou dispersa)
+ * C = Lacuna Leve (Ajuste de forma)
+ */
+
 export interface AnalysisGap {
   id: string;
-  description: string; // "Falta o CAC"
+  description: string; 
   status: 'OPEN' | 'RESOLVED' | 'PARTIAL';
   resolutionScore: number; // 0 to 100
-  aiFeedback: string; // "O usuário enviou o relatório X que contém o CAC de R$ 50."
-  detectedAt: number; // Timestamp
-  resolvedAt?: number; // Timestamp
+  aiFeedback: string; 
+  severityLevel: GapSeverity; // A, B or C
+  createdAt: number; // Timestamp when first detected
+  updatedAt: number; // Timestamp of last update
+  resolvedAt?: number; // Timestamp when resolved
 }
+
 
 export interface DiagnosisResponse {
   timestamp: number;
