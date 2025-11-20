@@ -1,5 +1,62 @@
 
-import { PlanSection, SectionStatus, SectionType } from './types';
+
+
+// FIX: Import StrategicMatrix to resolve typing error on line 734.
+import { PlanSection, SectionStatus, SectionType, StrategicMatrix } from './types';
+
+export const DIAGNOSIS_STEPS = [
+  { 
+    name: 'Análise de Mercado', 
+    description: 'Avaliar o público-alvo, segmentos de clientes e tamanho de mercado (TAM/SAM/SOM).',
+    matrixTargets: ['customerSegments', 'swot.opportunities']
+  },
+  { 
+    name: 'Análise de Concorrência', 
+    description: 'Mapear concorrentes diretos e indiretos, analisando seus pontos fortes e fracos.',
+    matrixTargets: ['swot.threats', 'swot.weaknesses']
+  },
+  { 
+    name: 'Proposta de Valor', 
+    description: 'Definir claramente a Proposta de Valor, conectando o problema do cliente à solução oferecida.',
+    matrixTargets: ['valueProposition', 'swot.strengths']
+  },
+  { 
+    name: 'Solução/Produto/Serviço', 
+    description: 'Detalhar os produtos, serviços e o ecossistema (OTT, HUB, Van).',
+    matrixTargets: ['keyActivities', 'keyResources']
+  },
+  { 
+    name: 'Marketing – 4Ps', 
+    description: 'Analisar Estratégias de Preço, Praça (Canais) e Promoção (Relacionamento).',
+    matrixTargets: ['channels', 'customerRelationships']
+  },
+  { 
+    name: 'Modelo de Negócio', 
+    description: 'Estruturar as Fontes de Receita e as Parcerias-Chave para a operação.',
+    matrixTargets: ['revenueStreams', 'keyPartnerships']
+  },
+  { 
+    name: 'Operação/Processos/Recursos', 
+    description: 'Mapear os processos internos, recursos-chave e atividades essenciais.',
+    matrixTargets: ['keyActivities', 'keyResources'] // Can refine these
+  },
+  { 
+    name: 'Finanças – Custos/Viabilidade', 
+    description: 'Analisar a Estrutura de Custos e os principais números de viabilidade financeira.',
+    matrixTargets: ['costStructure']
+  },
+  { 
+    name: 'Riscos – Internos/Externos', 
+    description: 'Identificar os principais riscos do negócio e inseri-los na matriz SWOT.',
+    matrixTargets: ['swot.weaknesses', 'swot.threats']
+  },
+  { 
+    name: 'Conclusão — Nível de Prontidão Final', 
+    description: 'Consolidar a análise, calcular o nível de prontidão e identificar as pendências finais.',
+    matrixTargets: [] // This step generates the final score and gaps
+  }
+];
+
 
 export const BRDE_FSA_RULES = `
 REGRAS DE FINANCIAMENTO BRDE / FSA (Linha Inovação e Acessibilidade - Economia Criativa):
@@ -616,7 +673,7 @@ export const INITIAL_SECTIONS: PlanSection[] = [
   { id: '11.3.0', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.0 Intro Orçamentos', description: 'Valores.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '11.3.1', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.1 Equipamentos', description: 'Entrega: Cotações CAPEX.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '11.3.2', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.2 Tecnologia', description: 'Entrega: Plataforma/Soft.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
-  { id: '11.3.3', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.3 Obras/Reformas', description: 'Entrega: Orçamento Civil.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '1.3.3', chapter: '1.3 ORÇAMENTOS E CUSTOS', title: '1.3.3 Obras/Reformas', description: 'Entrega: Orçamento Civil.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '11.3.4', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.4 Memória Cálculo', description: 'Entrega: Planilhas OPEX.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '11.3.5', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.5 Conclusão Orçamentos', description: 'Checklist 11.3 OK.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
 
@@ -675,4 +732,22 @@ export const IMAGE_PROMPTS = {
   logo: "Logotipo profissional e moderno para 'SCine', uma plataforma de streaming e HUB criativo em Santa Catarina. Estilo tech, vibrante, cores laranja e roxo, vetor minimalista.",
   floorplan: "Planta baixa arquitetônica técnica de um HUB Audiovisual de 600m². Incluindo: 2 estúdios de vídeo, 4 ilhas de edição, área de coworking, recepção e depósito técnico. Estilo blueprint azul.",
   map: "Mapa estratégico do estado de Santa Catarina, Brasil, mostrando pontos de conexão digital e uma rota ilustrada de uma Van de Transmissão 4K percorrendo as principais cidades.",
+};
+export const DEFAULT_STRATEGIC_MATRIX: StrategicMatrix = {
+    customerSegments: { items: [], description: "", source: "", clarityLevel: 0 },
+    valueProposition: { items: [], description: "", source: "", clarityLevel: 0 },
+    channels: { items: [], description: "", source: "", clarityLevel: 0 },
+    customerRelationships: { items: [], description: "", source: "", clarityLevel: 0 },
+    revenueStreams: { items: [], description: "", source: "", clarityLevel: 0 },
+    keyResources: { items: [], description: "", source: "", clarityLevel: 0 },
+    keyActivities: { items: [], description: "", source: "", clarityLevel: 0 },
+    keyPartnerships: { items: [], description: "", source: "", clarityLevel: 0 },
+    costStructure: { items: [], description: "", source: "", clarityLevel: 0 },
+    swot: {
+        strengths: { items: [], description: "", source: "", clarityLevel: 0 },
+        weaknesses: { items: [], description: "", source: "", clarityLevel: 0 },
+        opportunities: { items: [], description: "", source: "", clarityLevel: 0 },
+        threats: { items: [], description: "", source: "", clarityLevel: 0 },
+    },
+    generatedAt: 0,
 };

@@ -1,6 +1,7 @@
 
 
 
+
 export enum SectionStatus {
   PENDING = 'PENDING',
   ANALYZING = 'ANALYZING', // AI is checking if info is missing
@@ -46,38 +47,48 @@ export interface FinancialYear {
   profit: number;
 }
 
-// --- VALUE MATRIX TYPES (STEP 0) - REFACTORED ---
-
-export interface ValueSource {
-  arquivo: string;
-  localizacao: string; // "p. 37, quadro 6.3"
-  valorOriginal: number | string; // Valor cru encontrado no arquivo
+// --- NEW STRATEGIC MATRIX TYPES ---
+export interface MatrixItem {
+    item: string;
+    description: string;
 }
 
-export interface ValueEntry {
-  id: string;
-  categoria: string; // "receita", "custo_operacional", "investimento_capex", "assinantes", etc.
-  subcategoria?: string; // "OTT", "HUB", "B2C"
-  nome: string; // "Investimento total do projeto em 24 meses"
-  valor: number; // Valor numérico oficial para cálculos
-  moeda?: string; // "BRL", "USD", "%", "unidades"
-  unidade?: string; // "24_meses", "mensal", "total"
-  periodoReferencia?: string; // "M1-M24", "Ano 1"
-  
-  // Auditoria e Rastreabilidade
-  fontesUsadas: ValueSource[];
-  criterioEscolha: string; // "prioridade_documento_revisao", "coerencia_interna", etc.
-  statusResolucao: 'consolidado' | 'conflito_nao_resolvido';
-  
-  valorOficial?: boolean; // Se true, este é o número final a ser usado no plano
+export interface CanvasBlock {
+    items: MatrixItem[];
+    description: string;
+    source: string; // Which diagnosis step generated this
+    clarityLevel: number; // 0-100%
 }
 
-export interface ValueMatrix {
-  entries: ValueEntry[];
-  generatedAt: number;
-  summary?: string; // Resumo da consolidação
+export interface SwotBlock {
+    items: string[];
+    description: string;
+    source: string;
+    clarityLevel: number; // 0-100%
+}
+
+export interface StrategicMatrix {
+    // Business Model Canvas
+    customerSegments: CanvasBlock;
+    valueProposition: CanvasBlock;
+    channels: CanvasBlock;
+    customerRelationships: CanvasBlock;
+    revenueStreams: CanvasBlock;
+    keyResources: CanvasBlock;
+    keyActivities: CanvasBlock;
+    keyPartnerships: CanvasBlock;
+    costStructure: CanvasBlock;
+    // SWOT
+    swot: {
+        strengths: SwotBlock;
+        weaknesses: SwotBlock;
+        opportunities: SwotBlock;
+        threats: SwotBlock;
+    };
+    generatedAt: number;
 }
 // -----------------------------------
+
 
 export interface AppContextState {
   methodology: string;
@@ -86,7 +97,7 @@ export interface AppContextState {
   uploadedFiles: UploadedFile[];
   assets: ProjectAsset[];
   lastModified?: number;
-  valueMatrix?: ValueMatrix; // Store the Step 0 Matrix
+  strategicMatrix?: StrategicMatrix; // Replaces ValueMatrix
 }
 
 export interface UploadedFile {
@@ -118,7 +129,7 @@ export interface StrategicPath {
   cons: string[];
 }
 
-// --- DIAGNOSIS HISTORY TYPES (REFACTORED) ---
+// --- DIAGNOSIS TYPES ---
 export type GapSeverity = 'A' | 'B' | 'C'; 
 /**
  * A = Lacuna Grave (Informação inexistente)
@@ -151,7 +162,18 @@ export interface DiagnosisResponse {
     description: string;
   }[];
 }
-// -------------------------------
+
+// Result from a single step of the 10-step diagnosis
+export interface DiagnosisStepResult {
+  logs: string[];
+  matrixUpdate: Partial<StrategicMatrix>;
+  // The final step will also include the overall diagnosis
+  finalDiagnosis?: {
+    overallReadiness: number;
+    gaps: Omit<AnalysisGap, 'createdAt' | 'updatedAt' | 'resolvedAt' | 'status' | 'resolutionScore'>[];
+  };
+}
+
 
 // --- NEW SAAS TYPES ---
 

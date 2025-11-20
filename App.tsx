@@ -1,23 +1,27 @@
 
 
 
+
+
+
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { 
   LayoutDashboard, FileText, Download, CheckCircle2, Loader2,
   ChevronRight, ChevronDown, Edit3, Save, Wand2,
   Lock, RotateCcw, ArrowRightCircle, RefreshCw, Paperclip, TableProperties,
   LogOut, ArrowLeft, Cloud, CloudLightning, Stethoscope,
-  History, AlertTriangle, Check, ShieldCheck
+  History, AlertTriangle, Check, ShieldCheck, FileCode
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { produce } from 'immer';
 
-import { PlanSection, AppContextState, SectionStatus, SectionType, FinancialYear, BusinessGoal, ProjectAsset, DiagnosisResponse, UploadedFile, User, Project, ProjectVersion, AnalysisGap } from './types';
-import { INITIAL_SECTIONS, DEFAULT_METHODOLOGY, IMAGE_PROMPTS } from './constants';
-import { generateSectionContent, generateFinancialData, generateGlobalDiagnosis, generateProjectImage, generateValueMatrix, validateCompletedSections } from './services/gemini';
+import { PlanSection, AppContextState, SectionStatus, SectionType, FinancialYear, BusinessGoal, ProjectAsset, DiagnosisResponse, UploadedFile, User, Project, ProjectVersion, AnalysisGap, StrategicMatrix, DiagnosisStepResult } from './types';
+import { INITIAL_SECTIONS, DEFAULT_METHODOLOGY, IMAGE_PROMPTS, DIAGNOSIS_STEPS, DEFAULT_STRATEGIC_MATRIX } from './constants';
+import { generateSectionContent, generateFinancialData, runDiagnosisStep, generateProjectImage, validateCompletedSections } from './services/gemini';
 import { ContextManager } from './components/ContextManager';
 import { FinancialChart } from './components/FinancialChart';
-import { ValueMatrixViewer } from './components/ValueMatrixViewer';
+import { StrategicMatrixViewer } from './components/StrategicMatrixViewer';
 import { AuthScreen } from './components/AuthScreen';
 import { Dashboard } from './components/Dashboard';
 import { LiveDocumentPreview } from './components/LiveDocumentPreview';
@@ -62,7 +66,12 @@ const App: React.FC = () => {
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [driveSyncInfo, setDriveSyncInfo] = useState<{ folder: string, fileId: string } | null>(null);
 
-  const [isDiagnosisLoading, setIsDiagnosisLoading] = useState(false);
+  // New Diagnosis State
+  const [isDiagnosisRunning, setIsDiagnosisRunning] = useState(false);
+  const [diagnosisProgress, setDiagnosisProgress] = useState(0);
+  const [currentDiagnosisStep, setCurrentDiagnosisStep] = useState(0);
+  const [diagnosisLogs, setDiagnosisLogs] = useState<string[]>([]);
+  
   const [isValidationLoading, setIsValidationLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -172,7 +181,14 @@ const App: React.FC = () => {
       updatedAt: Date.now(),
       currentData: {
         sections: INITIAL_SECTIONS.map(s => ({...s})), // Deep copy
-        contextState: { methodology: DEFAULT_METHODOLOGY, businessGoal: BusinessGoal.FINANCING_BRDE, rawContext: '', uploadedFiles: [], assets: [] },
+        contextState: { 
+            methodology: DEFAULT_METHODOLOGY, 
+            businessGoal: BusinessGoal.FINANCING_BRDE, 
+            rawContext: '', 
+            uploadedFiles: [], 
+            assets: [],
+            strategicMatrix: DEFAULT_STRATEGIC_MATRIX,
+        },
         diagnosisHistory: [],
       },
       versions: [],
@@ -190,43 +206,118 @@ const App: React.FC = () => {
     setProjects(prev => prev.filter(p => p.id !== id));
   }, []);
 
-  const getFullContext = useCallback(() => {
+  const getFullContext = useCallback((includeCompleted = true) => {
     if (!activeProject) return "";
     const { contextState } = activeProject.currentData;
-    const restoredFileWarning = contextState.uploadedFiles.some(f => f.isRestored) ? "\nAVISO: Alguns arquivos foram restaurados da memória sem seu conteúdo completo." : "";
     
     const userUploadedFiles = contextState.uploadedFiles.filter(f => !f.isGenerated && f.type === 'text' && f.content && !f.isRestored);
-    const completedSectionsContent = contextState.uploadedFiles.filter(f => f.isGenerated && f.type === 'text' && f.content);
+    const completedSectionsContent = includeCompleted 
+        ? contextState.uploadedFiles.filter(f => f.isGenerated && f.type === 'text' && f.content)
+        : [];
 
     const truthSourceContext = completedSectionsContent.length > 0
         ? `\n\n--- FONTES DA VERDADE (SEÇÕES CONCLUÍDAS E APROVADAS PELO USUÁRIO) ---\n${completedSectionsContent.map(f => `CONTEÚDO DE: ${f.name.replace('[CONCLUÍDO] ', '')}\n${f.content}`).join('\n\n')}`
         : "";
 
-    return `OBJETIVO: ${contextState.businessGoal}\nMETODOLOGIA: ${contextState.methodology}\nANOTAÇÕES: ${contextState.rawContext}\nARQUIVOS DO USUÁRIO: ${userUploadedFiles.map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n')}${truthSourceContext}${restoredFileWarning}`;
+    return `OBJETIVO: ${contextState.businessGoal}\nMETODOLOGIA: ${contextState.methodology}\nANOTAÇÕES: ${contextState.rawContext}\nARQUIVOS DO USUÁRIO: ${userUploadedFiles.map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n')}${truthSourceContext}`;
   }, [activeProject]);
   
-  const handleRunDiagnosis = useCallback(async () => {
+ const handleRunDiagnosis = useCallback(async () => {
     if (!activeProject) return;
-    setIsDiagnosisLoading(true);
-    try {
-        const fullContext = getFullContext();
-        
-        updateSection('1.0', { status: SectionStatus.ANALYZING });
-        const matrixResult = await generateValueMatrix(fullContext);
-        setProjectData(activeProject.id, { contextState: { ...activeProject.currentData.contextState, valueMatrix: matrixResult }});
 
-        const diagResult = await generateGlobalDiagnosis(fullContext, matrixResult, activeProject.currentData.diagnosisHistory);
+    setIsDiagnosisRunning(true);
+    setCurrentDiagnosisStep(0);
+    setDiagnosisProgress(0);
+    setDiagnosisLogs([]);
 
-        setProjectData(activeProject.id, { diagnosisHistory: [...activeProject.currentData.diagnosisHistory, diagResult] });
-        updateSection('1.0', { status: SectionStatus.PENDING });
-    } catch (e) {
-        alert("Erro no diagnóstico. A resposta da IA pode ser inválida. Verifique o console.");
-        console.error(e);
-        updateSection('1.0', { status: SectionStatus.PENDING });
-    } finally {
-      setIsDiagnosisLoading(false);
+    const initialContext = getFullContext(false);
+    const isContextEmpty = !initialContext.replace(/OBJETIVO:.*/, '').replace(/METODOLOGIA:.*/, '').trim();
+
+    if (isContextEmpty) {
+        setDiagnosisLogs(["Contexto inicial vazio. O diagnóstico será baseado apenas na estrutura padrão."]);
+        const emptyDiagnosis: DiagnosisResponse = {
+            timestamp: Date.now(),
+            projectSummary: "Nenhum conteúdo fornecido para análise.",
+            overallReadiness: 0,
+            gaps: DIAGNOSIS_STEPS.map((step, i) => ({
+                id: `gap_empty_${i}`,
+                description: `Nenhuma informação encontrada para a Etapa ${i+1}: ${step.name}.`,
+                status: 'OPEN',
+                resolutionScore: 0,
+                aiFeedback: "Envie arquivos ou adicione anotações para permitir a análise.",
+                severityLevel: 'A',
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+            })),
+            strategicPaths: [],
+            suggestedSections: [],
+        };
+        setProjectData(activeProject.id, {
+            contextState: { ...activeProject.currentData.contextState, strategicMatrix: DEFAULT_STRATEGIC_MATRIX },
+            diagnosisHistory: [...activeProject.currentData.diagnosisHistory, emptyDiagnosis],
+        });
+        setIsDiagnosisRunning(false);
+        return;
     }
-  }, [activeProject, getFullContext, setProjectData, updateSection]);
+
+    let currentMatrix = produce(DEFAULT_STRATEGIC_MATRIX, draft => {
+        draft.generatedAt = Date.now();
+    });
+
+    for (let i = 0; i < DIAGNOSIS_STEPS.length; i++) {
+        setCurrentDiagnosisStep(i);
+        setDiagnosisProgress((i / DIAGNOSIS_STEPS.length) * 100);
+        
+        const stepResult = await runDiagnosisStep(i, getFullContext(), currentMatrix);
+        
+        setDiagnosisLogs(prev => [...prev, ...stepResult.logs]);
+        
+        // Deep merge matrix updates
+        if (stepResult.matrixUpdate) {
+            currentMatrix = produce(currentMatrix, draft => {
+                // This is a simplified merge, a deep merge utility would be more robust
+                 Object.assign(draft, stepResult.matrixUpdate);
+            });
+            setProjectData(activeProject.id, { 
+                contextState: { ...activeProject.currentData.contextState, strategicMatrix: currentMatrix }
+            });
+        }
+        
+        // Handle final step
+        if (i === DIAGNOSIS_STEPS.length - 1 && stepResult.finalDiagnosis) {
+             const timestamp = Date.now();
+             // FIX: Ensure 'gaps' from API response is an array before mapping over it to prevent crashes.
+             const gapsFromApi = stepResult.finalDiagnosis.gaps;
+             const finalGaps: AnalysisGap[] = Array.isArray(gapsFromApi)
+                ? gapsFromApi.map(g => ({
+                    ...g,
+                    status: 'OPEN',
+                    resolutionScore: 0,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                }))
+                : [];
+
+            const finalDiagnosis: DiagnosisResponse = {
+                timestamp,
+                projectSummary: "Diagnóstico completo de 10 etapas concluído.",
+                overallReadiness: stepResult.finalDiagnosis.overallReadiness,
+                gaps: finalGaps,
+                strategicPaths: [],
+                suggestedSections: []
+            };
+            setProjectData(activeProject.id, { 
+                diagnosisHistory: [...activeProject.currentData.diagnosisHistory, finalDiagnosis] 
+            });
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    setDiagnosisProgress(100);
+    setIsDiagnosisRunning(false);
+
+  }, [activeProject, getFullContext, setProjectData]);
 
     const handleValidateProject = async () => {
         if (!activeProject) return;
@@ -245,7 +336,7 @@ const App: React.FC = () => {
             const { contextState } = activeProject.currentData;
             const validationResults = await validateCompletedSections(
                 completedSections,
-                contextState.valueMatrix!,
+                contextState.strategicMatrix!,
                 contextState.methodology,
                 contextState.businessGoal
             );
@@ -280,7 +371,7 @@ const App: React.FC = () => {
       try {
         const context = getFullContext();
         const goal = activeProject.currentData.contextState.businessGoal;
-        const matrix = activeProject.currentData.contextState.valueMatrix;
+        const matrix = activeProject.currentData.contextState.strategicMatrix;
         const newContent = await generateSectionContent(section.title, section.description, '', context, goal, '', '', section.content, '', '', '', matrix);
         updateSection(section.id, { content: newContent, status: SectionStatus.DRAFT });
         setEditedContent(newContent);
@@ -300,7 +391,7 @@ const App: React.FC = () => {
     try {
       const context = getFullContext();
       const goal = activeProject.currentData.contextState.businessGoal;
-      const matrix = activeProject.currentData.contextState.valueMatrix;
+      const matrix = activeProject.currentData.contextState.strategicMatrix;
       const newContent = await generateSectionContent(section.title, section.description, '', context, goal, '', '', section.content, refinementInput, '', '', matrix);
       updateSection(section.id, { content: newContent, status: SectionStatus.DRAFT, lastRefinement: refinementInput });
       setEditedContent(newContent);
@@ -319,7 +410,7 @@ const App: React.FC = () => {
     setIsGenerating(true);
     updateSection(section.id, { status: SectionStatus.GENERATING, validationFeedback: '' });
     try {
-      const matrix = activeProject.currentData.contextState.valueMatrix;
+      const matrix = activeProject.currentData.contextState.strategicMatrix;
       const { analysis, data } = await generateFinancialData(matrix);
       updateSection(section.id, { content: analysis, financialData: data, status: SectionStatus.DRAFT });
     } catch (e) {
@@ -386,11 +477,7 @@ const App: React.FC = () => {
   if (currentView === 'preview') return <LiveDocumentPreview projectName={activeProject.name} sections={activeProject.currentData.sections} onClose={() => setCurrentView('editor')} />;
 
   const lastDiagnosis = activeProject.currentData.diagnosisHistory.slice(-1)[0];
-
-  // FIX: Explicitly type `openGaps` to ensure it's always treated as an array, resolving the 'map does not exist on type unknown' error.
-  const openGaps: AnalysisGap[] = (lastDiagnosis && Array.isArray(lastDiagnosis.gaps))
-    ? lastDiagnosis.gaps.filter(g => g && g.status === 'OPEN')
-    : [];
+  const openGaps = (lastDiagnosis?.gaps || []).filter(g => g && g.status === 'OPEN');
 
   const MarkdownComponents = {
     table: ({node, ...props}: any) => (
@@ -622,18 +709,32 @@ const App: React.FC = () => {
 
         {/* Right Sidebar - Context & Diagnosis */}
         <aside className="w-1/3 max-w-md flex-shrink-0 bg-white border-l border-slate-200 overflow-y-auto p-6 space-y-6">
-            <div>
-                 <button onClick={handleRunDiagnosis} disabled={isDiagnosisLoading || isValidationLoading} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition-colors disabled:bg-slate-300">
-                    {isDiagnosisLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Stethoscope className="w-5 h-5" />}
-                    {lastDiagnosis ? 'Atualizar Diagnóstico' : 'Rodar Diagnóstico Global'}
+            <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
+                 <button onClick={handleRunDiagnosis} disabled={isDiagnosisRunning} className="w-full relative flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition-colors disabled:bg-slate-400 overflow-hidden">
+                     <div className="absolute left-0 top-0 h-full bg-green-500/50 transition-all duration-500" style={{ width: `${diagnosisProgress}%` }}></div>
+                     <span className="relative z-10 flex items-center justify-center gap-2">
+                        {isDiagnosisRunning ? <Loader2 className="w-5 h-5 animate-spin" /> : <Stethoscope className="w-5 h-5" />}
+                        {isDiagnosisRunning 
+                            ? `Etapa ${currentDiagnosisStep + 1}/${DIAGNOSIS_STEPS.length}: ${DIAGNOSIS_STEPS[currentDiagnosisStep].name}`
+                            : (lastDiagnosis ? 'Atualizar Diagnóstico' : 'Rodar Diagnóstico Global')}
+                     </span>
                 </button>
-                <button onClick={handleValidateProject} disabled={isValidationLoading || isDiagnosisLoading} className="w-full flex items-center justify-center gap-2 px-4 py-2 mt-2 border border-orange-300 bg-orange-50 text-orange-800 rounded-lg font-bold hover:bg-orange-100 transition-colors disabled:bg-slate-300 disabled:text-white">
-                    {isValidationLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
-                    Validar Seções Concluídas
-                </button>
+                {isDiagnosisRunning && diagnosisLogs.length > 0 && (
+                     <div className="mt-3 p-3 bg-slate-900 rounded-md max-h-32 overflow-y-auto">
+                        <div className="flex items-center gap-2 text-xs font-semibold text-green-400 mb-2">
+                            <FileCode className="w-4 h-4" />
+                            Console de Análise
+                        </div>
+                        {diagnosisLogs.map((log, index) => (
+                            <p key={index} className="text-xs text-slate-300 font-mono animate-in fade-in duration-500">
+                                <span className="text-green-500 mr-2">&gt;</span>{log}
+                            </p>
+                        ))}
+                     </div>
+                )}
             </div>
             
-            {lastDiagnosis && (
+            {lastDiagnosis && !isDiagnosisRunning && (
               <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
                  <h3 className="text-md font-bold text-slate-800 flex items-center gap-2"><History className="w-5 h-5 text-blue-600"/> Último Diagnóstico</h3>
                  <div className="mt-4 p-3 bg-blue-100/50 rounded-lg text-center">
@@ -656,7 +757,7 @@ const App: React.FC = () => {
               </div>
             )}
             
-            <ValueMatrixViewer matrix={activeProject.currentData.contextState.valueMatrix!} />
+            <StrategicMatrixViewer matrix={activeProject.currentData.contextState.strategicMatrix!} />
 
             <ContextManager 
                 state={activeProject.currentData.contextState} 
