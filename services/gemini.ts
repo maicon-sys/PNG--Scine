@@ -26,17 +26,27 @@ export const generateValueMatrix = async (context: string): Promise<ValueMatrix>
     const ai = getAIClient();
     const model = "gemini-2.5-flash";
     const prompt = `
-    ATENÇÃO: EXECUÇÃO DA "ETAPA 0" - MATRIZ DE VALORES E CONSOLIDAÇÃO DE DADOS.
-    Você é um Auditor Financeiro Sênior especializado em Projetos BRDE/FSA.
-    Sua missão é criar a "FONTE DA VERDADE" numérica para o plano de negócios da SCine.
+    ATENÇÃO: EXECUÇÃO DA "ETAPA 0" - MATRIZ DE VALORES ESTRATÉGICA.
+    Você é um Analista de Negócios Sênior, especialista em modelagem financeira SEBRAE e auditoria de crédito BRDE/FSA.
+    Sua missão é criar a "FONTE DA VERDADE" numérica para o projeto SCine usando uma metodologia híbrida.
     DOCUMENTOS DISPONÍVEIS: """${context}"""
-    REGRAS DE ARBITRAGEM:
-    1. PRIORIDADE: Documentos "Revisado", "Consolidado", "Final" > "Antigo", "Rascunho".
-    2. VALORES CRÍTICOS (NÃO ALTERAR): Investimento Total, Empréstimo BRDE, Contrapartida. Copie-os como estão de fontes consolidadas.
-    3. COERÊNCIA: Verifique somas internas.
-    4. CENÁRIOS: Trate "Otimista", "Realista" como entradas separadas.
-    5. CONFLITO: Se não puder decidir, marque statusResolucao: "conflito_nao_resolvido".
-    RETORNO: JSON com a matriz. Não invente valores.
+
+    **METODOLOGIA HÍBRIDA (2 FASES):**
+
+    **FASE 1: BUSCA ATIVA E CONSOLIDAÇÃO (CHECKLIST ESTRATÉGICO)**
+    Primeiro, busque ativamente por estes conceitos-chave. Entenda o contexto e consolide valores (ex: some salários para obter "Custo de Pessoal"). Não se prenda a palavras-chave exatas.
+    - **Checklist Prioritário:** Investimento Total (CAPEX), Empréstimo Solicitado (BRDE), Contrapartida, Custos de Pessoal, Custos de Infraestrutura, Tributação (Regime/Alíquota), Faturamento Previsto (Anos 1 e 2), Custos Variáveis principais.
+    - **REGRA CRÍTICA:** Se um item do checklist não for encontrado, **NÃO O INCLUA NA MATRIZ**. Não invente valores. A ausência de dados será analisada no diagnóstico.
+
+    **FASE 2: AUDITORIA REATIVA E ARBITRAGEM**
+    Após a Fase 1, faça uma varredura completa e adicione outros dados numéricos relevantes, aplicando estas regras:
+    1.  **Prioridade de Arquivos:** "Final", "Consolidado" > "Rascunho", "Antigo".
+    2.  **Coerência:** Verifique se os totais informados batem com as somas que você consolidou.
+    3.  **Conflitos:** Se valores forem inconsistentes e a prioridade for a mesma, marque o status como "conflito_nao_resolvido".
+    4.  **Rastreabilidade:** Para cada valor, cite a fonte (arquivo e localização).
+
+    **RETORNO:**
+    Produza um JSON com a matriz de valores. A qualidade de todo o plano depende da precisão desta etapa.
     `;
     try {
         const result = await ai.models.generateContent({ model, contents: prompt, config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { summary: { type: Type.STRING }, entries: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, categoria: { type: Type.STRING }, subcategoria: { type: Type.STRING }, nome: { type: Type.STRING }, valor: { type: Type.NUMBER }, moeda: { type: Type.STRING }, unidade: { type: Type.STRING }, periodoReferencia: { type: Type.STRING }, fontesUsadas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { arquivo: { type: Type.STRING }, localizacao: { type: Type.STRING }, valorOriginal: { type: Type.NUMBER } } } }, criterioEscolha: { type: Type.STRING }, statusResolucao: { type: Type.STRING }, valorOficial: { type: Type.BOOLEAN } }, required: ["id", "categoria", "nome", "valor", "fontesUsadas", "statusResolucao"] } } }, required: ["entries"] } } });
@@ -174,10 +184,26 @@ export const generateFinancialData = async (
 export const generateProjectImage = async (promptDescription: string): Promise<string> => {
     const ai = getAIClient();
     try {
-        const response = await ai.models.generateImages({ model: 'imagen-4.0-generate-001', prompt: promptDescription, config: { numberOfImages: 1, aspectRatio: '16:9', outputMimeType: 'image/jpeg' } });
-        const base64 = response.generatedImages?.[0]?.image?.imageBytes;
-        if (!base64) throw new Error("Nenhuma imagem foi gerada.");
-        return base64;
+        // FIX: Switched from deprecated generateImages to generateContent with an image model as per guidelines.
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: {
+                parts: [{ text: promptDescription }],
+            },
+            config: {
+                imageConfig: {
+                    aspectRatio: "16:9"
+                }
+            }
+        });
+
+        // FIX: Iterate through response parts to find the generated image data, as per guidelines.
+        for (const part of response.candidates[0].content.parts) {
+            if (part.inlineData) {
+                return part.inlineData.data;
+            }
+        }
+        throw new Error("Nenhuma imagem foi gerada.");
     } catch (e) { console.error("Erro na geração de imagem:", e); throw e; }
 };
 

@@ -25,7 +25,7 @@ import { GoogleDriveIntegration } from './components/GoogleDriveIntegration';
 
 
 const STORAGE_KEY_PROJECTS = 'scine_saas_projects';
-const STORAGE_key_user = 'scine_saas_user';
+const STORAGE_KEY_USER = 'scine_saas_user';
 
 type ViewState = 'auth' | 'dashboard' | 'editor' | 'preview';
 
@@ -387,6 +387,11 @@ const App: React.FC = () => {
 
   const lastDiagnosis = activeProject.currentData.diagnosisHistory.slice(-1)[0];
 
+  // FIX: Explicitly type `openGaps` to ensure it's always treated as an array, resolving the 'map does not exist on type unknown' error.
+  const openGaps: AnalysisGap[] = (lastDiagnosis && Array.isArray(lastDiagnosis.gaps))
+    ? lastDiagnosis.gaps.filter(g => g && g.status === 'OPEN')
+    : [];
+
   const MarkdownComponents = {
     table: ({node, ...props}: any) => (
       <div className="my-6 overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
@@ -635,29 +640,19 @@ const App: React.FC = () => {
                     <p className="text-sm text-blue-800 font-semibold">Nível de Prontidão</p>
                     <p className="text-3xl font-bold text-blue-700">{lastDiagnosis.overallReadiness || 0}%</p>
                  </div>
-                 {/* @FIX: Refactored to use a ternary and a variable to ensure type safety and prevent crashes if `gaps` is not an array. */}
-                 {(() => {
-                   if (!Array.isArray(lastDiagnosis.gaps) || lastDiagnosis.gaps.length === 0) {
-                     return null;
-                   }
-                   {/* FIX: Removed problematic type cast and added a guard for `g` to ensure type safety and prevent inference issues. */}
-                   const openGaps = lastDiagnosis.gaps.filter(g => g && g.status === 'OPEN');
-                   return (
-                     <div className="mt-4 space-y-2">
-                       <h4 className="font-semibold text-sm">Pendências Críticas ({openGaps.length})</h4>
-                       {openGaps.length > 0 && (
-                         <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
-                           {openGaps.map(gap => (
-                             <div key={gap.id} className="text-xs bg-white p-2 border-l-4 border-orange-400 rounded">
-                               <span className={`font-bold mr-1 ${gap.severityLevel === 'A' ? 'text-red-600' : 'text-yellow-600'}`}>[{gap.severityLevel}]</span>
-                               {gap.description}
-                             </div>
-                           ))}
-                         </div>
-                       )}
-                     </div>
-                   );
-                 })()}
+                 {openGaps.length > 0 && (
+                   <div className="mt-4 space-y-2">
+                     <h4 className="font-semibold text-sm">Pendências Críticas ({openGaps.length})</h4>
+                       <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
+                         {openGaps.map(gap => (
+                           <div key={gap.id} className="text-xs bg-white p-2 border-l-4 border-orange-400 rounded">
+                             <span className={`font-bold mr-1 ${gap.severityLevel === 'A' ? 'text-red-600' : 'text-yellow-600'}`}>[{gap.severityLevel}]</span>
+                             {gap.description}
+                           </div>
+                         ))}
+                       </div>
+                   </div>
+                 )}
               </div>
             )}
             
