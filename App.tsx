@@ -58,6 +58,10 @@ const App: React.FC = () => {
   const [isDiagnosisLoading, setIsDiagnosisLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // Edit Mode State
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState('');
+
   const activeProject = useMemo(() => projects.find(p => p.id === activeProjectId), [projects, activeProjectId]);
   const activeSection = useMemo(() => activeProject?.currentData.sections.find(s => s.id === activeSectionId), [activeProject, activeSectionId]);
   
@@ -117,6 +121,14 @@ const App: React.FC = () => {
       }
     }
   }, [activeProject, activeSectionId]);
+
+  useEffect(() => {
+    if (activeSection) {
+        setEditedContent(activeSection.content);
+        setIsEditing(false); // Default to view mode when section changes
+    }
+  }, [activeSectionId]);
+
 
   // --- HANDLERS ---
   const handleLogin = useCallback((email: string, name: string) => {
@@ -200,6 +212,7 @@ const App: React.FC = () => {
         const matrix = activeProject.currentData.contextState.valueMatrix;
         const newContent = await generateSectionContent(section.title, section.description, '', context, goal, '', '', section.content, '', '', '', matrix);
         updateSection(section.id, { content: newContent, status: SectionStatus.COMPLETED });
+        setEditedContent(newContent);
       } catch(e) {
         console.error(e);
         updateSection(section.id, { status: SectionStatus.PENDING });
@@ -219,6 +232,7 @@ const App: React.FC = () => {
       const matrix = activeProject.currentData.contextState.valueMatrix;
       const newContent = await generateSectionContent(section.title, section.description, '', context, goal, '', '', section.content, refinementInput, '', '', matrix);
       updateSection(section.id, { content: newContent, status: SectionStatus.COMPLETED, lastRefinement: refinementInput });
+      setEditedContent(newContent);
       setRefinementInput('');
     } catch (e) {
       console.error(e);
@@ -246,6 +260,18 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSaveEdit = () => {
+    if (!activeSection) return;
+    updateSection(activeSection.id, { content: editedContent, status: SectionStatus.COMPLETED });
+    setIsEditing(false);
+  };
+
+  const handleCancelEdit = () => {
+    if (!activeSection) return;
+    setEditedContent(activeSection.content);
+    setIsEditing(false);
+  };
+
   // --- RENDER ---
   if (currentView === 'auth' || !currentUser) return <AuthScreen onLogin={handleLogin} />;
   if (currentView === 'dashboard') return <Dashboard user={currentUser} projects={projects} onCreateProject={handleCreateProject} onOpenProject={handleOpenProject} onDeleteProject={handleDeleteProject} onLogout={handleLogout} />;
@@ -264,6 +290,30 @@ const App: React.FC = () => {
   if (currentView === 'preview') return <LiveDocumentPreview projectName={activeProject.name} sections={activeProject.currentData.sections} onClose={() => setCurrentView('editor')} />;
 
   const lastDiagnosis = activeProject.currentData.diagnosisHistory.slice(-1)[0];
+
+  const MarkdownComponents = {
+    table: ({node, ...props}: any) => (
+      <div className="my-6 overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
+        <table className="w-full text-sm" {...props} />
+      </div>
+    ),
+    thead: ({node, ...props}: any) => <thead className="bg-slate-50 text-slate-600" {...props} />,
+    th: ({node, ...props}: any) => (
+      <th className="px-6 py-3 text-left font-semibold" {...props} />
+    ),
+    tbody: ({node, ...props}: any) => <tbody className="divide-y divide-slate-200 bg-white" {...props} />,
+    tr: ({node, ...props}: any) => <tr className="hover:bg-slate-50" {...props} />,
+    td: ({node, ...props}: any) => <td className="px-6 py-4" {...props} />,
+    h1: ({...props}) => <h1 className="text-2xl font-bold text-slate-800 mt-4 mb-2" {...props} />,
+    h2: ({...props}) => <h2 className="text-xl font-bold text-slate-800 mt-4 mb-2" {...props} />,
+    h3: ({...props}) => <h3 className="text-lg font-semibold text-slate-800 mt-4 mb-2" {...props} />,
+    p: ({...props}) => <p className="text-slate-700 leading-relaxed mb-4" {...props} />,
+    ul: ({...props}) => <ul className="list-disc list-inside mb-4 pl-4 text-slate-700" {...props} />,
+    ol: ({...props}) => <ol className="list-decimal list-inside mb-4 pl-4 text-slate-700" {...props} />,
+    li: ({...props}) => <li className="mb-2" {...props} />,
+    strong: ({...props}) => <strong className="font-semibold text-slate-900" {...props} />,
+    a: ({...props}) => <a className="text-blue-600 hover:underline" {...props} />,
+  };
   
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-50 font-sans text-slate-900">
@@ -381,12 +431,41 @@ const App: React.FC = () => {
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            <textarea 
-                                value={activeSection.content}
-                                onChange={(e) => updateSection(activeSection.id, { content: e.target.value, status: SectionStatus.COMPLETED })}
-                                className="w-full h-96 p-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all text-base leading-relaxed"
-                                placeholder="Gere o conteúdo com a IA ou escreva aqui..."
-                            />
+                            {isEditing ? (
+                                <>
+                                    <textarea 
+                                        value={editedContent}
+                                        onChange={(e) => setEditedContent(e.target.value)}
+                                        className="w-full h-96 p-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all text-base leading-relaxed"
+                                        placeholder="Escreva aqui..."
+                                    />
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={handleCancelEdit} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-semibold hover:bg-slate-200">Cancelar</button>
+                                        <button onClick={handleSaveEdit} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 flex items-center gap-2">
+                                            <Save className="w-4 h-4" /> Salvar Alterações
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="bg-white p-6 rounded-lg border border-slate-200 min-h-[24rem] prose prose-slate max-w-none">
+                                        {activeSection.content ? (
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                                {activeSection.content}
+                                            </ReactMarkdown>
+                                        ) : (
+                                            <div className="flex items-center justify-center h-full text-slate-400">
+                                                <p>Conteúdo vazio. Gere com a IA ou clique em editar.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="flex justify-end">
+                                        <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-semibold hover:bg-slate-200">
+                                            <Edit3 className="w-4 h-4" /> Editar Manualmente
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                             
                             <div className="flex items-stretch gap-2">
                                 <input 
@@ -395,21 +474,26 @@ const App: React.FC = () => {
                                     onChange={(e) => setRefinementInput(e.target.value)}
                                     placeholder="Instruções para refinar (Ex: 'deixe mais formal', 'adicione um parágrafo sobre...') "
                                     className="flex-grow p-3 border border-slate-300 rounded-lg text-sm"
-                                    disabled={!activeSection.content || isGenerating}
+                                    disabled={!activeSection.content || isGenerating || isEditing}
                                 />
-                                <button onClick={() => handleRefineSection(activeSection)} disabled={!activeSection.content || !refinementInput.trim() || isGenerating} className="px-4 py-2 bg-slate-600 text-white rounded-lg font-semibold hover:bg-slate-700 transition-colors disabled:bg-slate-300 flex items-center gap-2">
+                                <button onClick={() => handleRefineSection(activeSection)} disabled={!activeSection.content || !refinementInput.trim() || isGenerating || isEditing} className="px-4 py-2 bg-slate-600 text-white rounded-lg font-semibold hover:bg-slate-700 transition-colors disabled:bg-slate-300 flex items-center gap-2">
                                     <RotateCcw className="w-4 h-4" />
                                     Refinar
                                 </button>
                             </div>
 
                             <div className="flex justify-between items-center pt-4">
-                               <button onClick={() => handleGenerateSection(activeSection)} disabled={isGenerating} className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-slate-300 shadow-sm hover:shadow-md">
+                               <button onClick={() => handleGenerateSection(activeSection)} disabled={isGenerating || isEditing} className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-slate-300 shadow-sm hover:shadow-md">
                                     {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wand2 className="w-5 h-5" />}
                                     {activeSection.content ? 'Regerar com IA' : 'Gerar com IA'}
                                 </button>
-                                <button onClick={() => updateSection(activeSection.id, {status: SectionStatus.COMPLETED})} className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-800 rounded-lg font-semibold hover:bg-green-200 transition-colors">
-                                    <Check className="w-4 h-4" /> Marcar como Concluído
+                                <button 
+                                  onClick={() => updateSection(activeSection.id, {status: SectionStatus.COMPLETED})} 
+                                  disabled={activeSection.status === SectionStatus.COMPLETED}
+                                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors bg-green-100 text-green-800 hover:bg-green-200 disabled:bg-green-50 disabled:text-green-500 disabled:cursor-not-allowed"
+                                >
+                                    <Check className="w-4 h-4" /> 
+                                    {activeSection.status === SectionStatus.COMPLETED ? 'Concluído' : 'Marcar como Concluído'}
                                 </button>
                             </div>
                         </div>
