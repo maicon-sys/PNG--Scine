@@ -186,5 +186,7 @@ export interface Project {
 declare global {
   interface Window {
     pdfjsLib: any;
+    jspdf: any;
+    html2canvas: any;
   }
 }

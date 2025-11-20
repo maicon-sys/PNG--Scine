@@ -523,17 +523,20 @@ const App: React.FC = () => {
                     <p className="text-sm text-blue-800 font-semibold">Nível de Prontidão</p>
                     <p className="text-3xl font-bold text-blue-700">{lastDiagnosis.overallReadiness || 0}%</p>
                  </div>
-                 <div className="mt-4 space-y-2">
-                    <h4 className="font-semibold text-sm">Pendências Críticas ({lastDiagnosis.gaps.filter(g => g.status === 'OPEN').length})</h4>
-                    <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
-                        {lastDiagnosis.gaps.filter(g => g.status === 'OPEN').map(gap => (
-                            <div key={gap.id} className="text-xs bg-white p-2 border-l-4 border-orange-400 rounded">
-                                <span className={`font-bold mr-1 ${gap.severityLevel === 'A' ? 'text-red-600' : 'text-yellow-600'}`}>[{gap.severityLevel}]</span>
-                                {gap.description}
-                            </div>
-                        ))}
-                    </div>
-                 </div>
+                 {/* @FIX: Add Array.isArray check to prevent crash if `gaps` is not an array. */}
+                 {Array.isArray(lastDiagnosis.gaps) && lastDiagnosis.gaps.length > 0 && (
+                   <div className="mt-4 space-y-2">
+                      <h4 className="font-semibold text-sm">Pendências Críticas ({lastDiagnosis.gaps.filter(g => g.status === 'OPEN').length})</h4>
+                      <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
+                          {lastDiagnosis.gaps.filter(g => g.status === 'OPEN').map(gap => (
+                              <div key={gap.id} className="text-xs bg-white p-2 border-l-4 border-orange-400 rounded">
+                                  <span className={`font-bold mr-1 ${gap.severityLevel === 'A' ? 'text-red-600' : 'text-yellow-600'}`}>[{gap.severityLevel}]</span>
+                                  {gap.description}
+                              </div>
+                          ))}
+                      </div>
+                   </div>
+                 )}
               </div>
             )}
             

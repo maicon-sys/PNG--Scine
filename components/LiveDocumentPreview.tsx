@@ -1,8 +1,9 @@
 
-import React, { useRef } from 'react';
+
+import React, { useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Download, Printer, FileText, ArrowLeft } from 'lucide-react';
+import { Download, FileText, ArrowLeft, Loader2 } from 'lucide-react';
 import { PlanSection, SectionStatus } from '../types';
 import { GLOSSARY_TERMS } from '../constants';
 
@@ -14,6 +15,7 @@ interface LiveDocumentPreviewProps {
 
 export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projectName, sections, onClose }) => {
   const docRef = useRef<HTMLDivElement>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   // Filter only completed sections and sort by ID to ensure correct order
   const sortedSections = sections
@@ -30,9 +32,65 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
       return 0;
     });
 
-  const handlePrint = () => {
-    window.print();
+  const handleDownloadPdf = async () => {
+    const input = docRef.current;
+    if (!input) return;
+    if (!window.jspdf || !window.html2canvas) {
+      alert("As bibliotecas de geração de PDF não carregaram. Por favor, recarregue a página.");
+      return;
+    }
+    
+    setIsGeneratingPdf(true);
+    
+    try {
+      const { jsPDF } = window.jspdf;
+      const canvas = await window.html2canvas(input, { 
+          scale: 2,
+          logging: false,
+          useCORS: true,
+          windowWidth: input.scrollWidth,
+          windowHeight: input.scrollHeight,
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'pt',
+        format: 'a4'
+      });
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const canvasWidth = canvas.width;
+      const canvasHeight = canvas.height;
+      
+      const ratio = canvasWidth / pdfWidth;
+      const canvasHeightInPdfPoints = canvasHeight / ratio;
+      
+      let position = 0;
+      
+      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, canvasHeightInPdfPoints);
+      
+      let heightLeft = canvasHeightInPdfPoints - pdfHeight;
+      
+      while (heightLeft > 0) {
+        position -= pdfHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, canvasHeightInPdfPoints);
+        heightLeft -= pdfHeight;
+      }
+      
+      pdf.save(`${projectName.replace(/[\s/]/g, '_')}_Plano_de_Negocios.pdf`);
+    } catch (e) {
+      console.error("PDF generation failed", e);
+      alert("Falha ao gerar o PDF. Verifique o console para mais detalhes.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
+
 
   const handleDownloadMarkdown = () => {
     const content = sortedSections.map(s => `# ${s.title}\n\n${s.content}`).join('\n\n---\n\n');
@@ -89,8 +147,22 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
           <button onClick={handleDownloadMarkdown} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50">
             <FileText className="w-4 h-4" /> Baixar Texto
           </button>
-          <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium shadow-sm">
-            <Printer className="w-4 h-4" /> Imprimir / Salvar PDF
+          <button 
+            onClick={handleDownloadPdf}
+            disabled={isGeneratingPdf}
+            className="flex items-center justify-center gap-2 px-4 py-2 w-44 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium shadow-sm transition-colors disabled:bg-blue-400 disabled:cursor-wait"
+          >
+            {isGeneratingPdf ? (
+                <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Gerando PDF...</span>
+                </>
+            ) : (
+                <>
+                    <Download className="w-4 h-4" />
+                    <span>Download PDF</span>
+                </>
+            )}
           </button>
         </div>
       </div>
