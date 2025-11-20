@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Download, Printer, FileText, ArrowLeft } from 'lucide-react';
 import { PlanSection, SectionStatus } from '../types';
+import { GLOSSARY_TERMS } from '../constants';
 
 interface LiveDocumentPreviewProps {
   projectName: string;
@@ -15,7 +16,6 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
   const docRef = useRef<HTMLDivElement>(null);
 
   // Filter only completed sections and sort by ID to ensure correct order
-  // We assume IDs are like "1.0", "1.1.1", etc.
   const sortedSections = sections
     .filter(s => s.status === SectionStatus.COMPLETED)
     .sort((a, b) => {
@@ -40,8 +40,22 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     const file = new Blob([content], {type: 'text/markdown'});
     element.href = URL.createObjectURL(file);
     element.download = `GPN-${projectName}.md`;
-    document.body.appendChild(element); // Required for this to work in FireFox
+    document.body.appendChild(element);
     element.click();
+  };
+
+  const getGlossaryTerms = (text: string) => {
+    const termsFound: string[] = [];
+    const upperText = text.toUpperCase();
+    
+    Object.keys(GLOSSARY_TERMS).forEach(term => {
+      // Check for whole word matches to avoid partials (e.g. "A" in "APPLE")
+      const regex = new RegExp(`\\b${term}\\b`, 'i');
+      if (regex.test(text)) {
+        termsFound.push(`**${term}**: ${GLOSSARY_TERMS[term]}`);
+      }
+    });
+    return termsFound;
   };
 
   const MarkdownComponents = {
@@ -55,6 +69,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     thead: ({...props}) => <thead className="bg-gray-100" {...props} />,
     th: ({...props}) => <th className="px-4 py-2 text-left text-xs font-bold text-gray-900 uppercase tracking-wider border-r border-gray-300" {...props} />,
     td: ({...props}) => <td className="px-4 py-2 text-sm text-gray-900 border-t border-gray-300 border-r" {...props} />,
+    strong: ({...props}) => <strong className="font-bold text-black" {...props} />,
   };
 
   return (
@@ -84,7 +99,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
       <div className="flex-1 overflow-y-auto p-8 flex justify-center">
         <div 
           ref={docRef} 
-          className="bg-white w-[210mm] min-h-[297mm] shadow-xl p-[20mm] print:p-0 print:shadow-none print:w-full"
+          className="bg-white w-[210mm] min-h-[297mm] shadow-xl p-[20mm] print:p-0 print:shadow-none print:w-full text-black"
         >
             {/* Cover Page */}
             <div className="flex flex-col justify-center items-center h-[250mm] mb-[20mm] border-b-2 border-gray-900 pb-10">
@@ -117,19 +132,34 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
                         Nenhum conteúdo gerado ainda. Volte ao editor e complete as seções.
                     </div>
                 ) : (
-                    sortedSections.map(section => (
-                        <div key={section.id} className="mb-8">
-                            <div className="flex items-baseline gap-2 mb-4 border-b border-gray-200 pb-1">
-                                <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">{section.id}</span>
-                                <h2 className="text-xl font-bold text-black">{section.title}</h2>
+                    sortedSections.map(section => {
+                        const glossaryTerms = getGlossaryTerms(section.content);
+                        return (
+                            <div key={section.id} className="mb-12 break-inside-avoid">
+                                <div className="flex items-baseline gap-2 mb-4 border-b border-gray-200 pb-1">
+                                    <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">{section.id}</span>
+                                    <h2 className="text-xl font-bold text-black">{section.title}</h2>
+                                </div>
+                                <div className="prose prose-slate max-w-none text-justify text-black">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                        {section.content}
+                                    </ReactMarkdown>
+                                </div>
+                                
+                                {/* Dynamic Glossary Footer */}
+                                {glossaryTerms.length > 0 && (
+                                    <div className="mt-6 pt-3 border-t border-gray-300 text-[10px] text-gray-500 font-mono leading-tight">
+                                        {glossaryTerms.map((term, idx) => (
+                                            <span key={idx} className="mr-3 inline-block">
+                                                <ReactMarkdown components={{p: ({node, ...props}) => <span {...props} />}}>{term}</ReactMarkdown>
+                                                {idx < glossaryTerms.length - 1 && ";"}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                            <div className="prose prose-slate max-w-none text-justify text-black">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {section.content}
-                                </ReactMarkdown>
-                            </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
         </div>
