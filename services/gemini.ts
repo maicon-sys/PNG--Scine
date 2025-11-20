@@ -13,7 +13,8 @@ const getAIClient = () => {
 // Helper to clean JSON string from Markdown fences and other garbage
 const cleanJsonString = (text: string): string => {
     if (!text) return "{}";
-    const match = text.match(/\{[\s\S]*\}/);
+    // This regex handles JSON that starts with { or [
+    const match = text.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
     if (match) {
         return match[0];
     }
@@ -40,7 +41,9 @@ export const generateValueMatrix = async (context: string): Promise<ValueMatrix>
     try {
         const result = await ai.models.generateContent({ model, contents: prompt, config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { summary: { type: Type.STRING }, entries: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, categoria: { type: Type.STRING }, subcategoria: { type: Type.STRING }, nome: { type: Type.STRING }, valor: { type: Type.NUMBER }, moeda: { type: Type.STRING }, unidade: { type: Type.STRING }, periodoReferencia: { type: Type.STRING }, fontesUsadas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { arquivo: { type: Type.STRING }, localizacao: { type: Type.STRING }, valorOriginal: { type: Type.NUMBER } } } }, criterioEscolha: { type: Type.STRING }, statusResolucao: { type: Type.STRING, enum: ["consolidado", "conflito_nao_resolvido"] }, valorOficial: { type: Type.BOOLEAN } }, required: ["id", "categoria", "nome", "valor", "fontesUsadas", "statusResolucao"] } } }, required: ["entries"] } } });
         const json = JSON.parse(cleanJsonString(result.text || "{}"));
-        return { entries: json.entries || [], summary: json.summary || "Matriz gerada.", generatedAt: Date.now() };
+        // FIX: Ensure json.entries is an array before returning to prevent runtime errors.
+        const entries = Array.isArray(json.entries) ? json.entries : [];
+        return { entries: entries, summary: json.summary || "Matriz gerada.", generatedAt: Date.now() };
     } catch (e) {
         console.error("Erro na Etapa 0 (Matriz de Valores):", e);
         return { entries: [], generatedAt: Date.now(), summary: "Erro na geração da matriz." };
@@ -72,11 +75,21 @@ export const generateGlobalDiagnosis = async (context: string, valueMatrix: Valu
         const result = await ai.models.generateContent({ model, contents: prompt, config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { projectSummary: { type: Type.STRING }, overallReadiness: { type: Type.NUMBER }, gaps: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, description: { type: Type.STRING }, status: { type: Type.STRING, enum: ["OPEN", "RESOLVED", "PARTIAL"] }, resolutionScore: { type: Type.NUMBER }, severityLevel: { type: Type.STRING, enum: ["A", "B", "C"] }, aiFeedback: { type: Type.STRING } }, required: ["id", "description", "status", "resolutionScore", "severityLevel", "aiFeedback"] } }, strategicPaths: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, description: { type: Type.STRING }, pros: { type: Type.ARRAY, items: { type: Type.STRING } }, cons: { type: Type.ARRAY, items: { type: Type.STRING } } } } }, suggestedSections: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { chapter: { type: Type.STRING }, title: { type: Type.STRING }, description: { type: Type.STRING } } } } }, required: ["projectSummary", "gaps", "strategicPaths"] } } });
         const json = JSON.parse(cleanJsonString(result.text || "{}"));
         const timestamp = Date.now();
-        const processedGaps: AnalysisGap[] = (json.gaps || []).map((g: any) => {
+        // FIX: Safely handle 'gaps' from model output, ensuring it's an array to prevent runtime .map() errors.
+        const gapsList = Array.isArray(json.gaps) ? json.gaps : [];
+        const processedGaps: AnalysisGap[] = gapsList.map((g: any) => {
             const oldGap = lastDiagnosis?.gaps.find(old => old.id === g.id);
             return { ...g, createdAt: oldGap?.createdAt ?? timestamp, updatedAt: timestamp, resolvedAt: g.status === 'RESOLVED' && oldGap?.status !== 'RESOLVED' ? timestamp : oldGap?.resolvedAt };
         });
-        return { ...json, gaps: processedGaps, strategicPaths: json.strategicPaths || [], suggestedSections: json.suggestedSections || [], timestamp };
+        // FIX: Construct the response object safely to guarantee type correctness and prevent crashes.
+        return {
+            timestamp,
+            projectSummary: json.projectSummary || '',
+            overallReadiness: json.overallReadiness || 0,
+            gaps: processedGaps,
+            strategicPaths: Array.isArray(json.strategicPaths) ? json.strategicPaths : [],
+            suggestedSections: Array.isArray(json.suggestedSections) ? json.suggestedSections : [],
+        };
     } catch (e) {
         console.error("Erro no Diagnóstico:", e);
         return { timestamp: Date.now(), projectSummary: "Falha na análise. A resposta da IA foi inválida. Tente novamente.", overallReadiness: 0, gaps: [], strategicPaths: [], suggestedSections: [] };
@@ -152,7 +165,9 @@ export const generateFinancialData = async (
     try {
         const result = await ai.models.generateContent({ model, contents: prompt, config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { analysis: { type: Type.STRING }, data: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { year: { type: Type.STRING }, revenue: { type: Type.NUMBER }, expenses: { type: Type.NUMBER }, profit: { type: Type.NUMBER } } } } } } } });
         const json = JSON.parse(cleanJsonString(result.text || "{}"));
-        return { analysis: json.analysis || "Análise indisponível.", data: json.data || [] };
+        // FIX: Ensure json.data is an array before returning.
+        const data = Array.isArray(json.data) ? json.data : [];
+        return { analysis: json.analysis || "Análise indisponível.", data: data };
     } catch (e) { console.error(e); return { analysis: "Erro ao gerar dados financeiros.", data: [] }; }
 };
 
