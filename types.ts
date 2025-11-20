@@ -137,7 +137,7 @@ export interface DiagnosisResponse {
   timestamp: number;
   projectSummary: string; 
   strategicPaths: StrategicPath[]; 
-  gaps: AnalysisGap[]; // List of gaps with their current status
+  gaps: AnalysisGap[]; // GUARANTEED to be an array
   overallReadiness: number; // 0 to 100 score
   suggestedSections: {
     chapter: string;

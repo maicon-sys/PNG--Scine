@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { Upload, FileText, Trash2, Settings, Plus, Target, Loader2, ImageIcon, AlertCircle } from 'lucide-react';
 import { AppContextState, UploadedFile, BusinessGoal, ProjectAsset } from '../types';
@@ -22,6 +21,7 @@ export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate 
 
   const readPdfText = async (file: File): Promise<string> => {
     if (!window.pdfjsLib) {
+      alert("A biblioteca de leitura de PDF não carregou. Por favor, recarregue a página.");
       throw new Error("PDF library not loaded");
     }
     const arrayBuffer = await file.arrayBuffer();
@@ -94,7 +94,7 @@ export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate 
         }
       } catch (error) {
         console.error(`Erro ao ler arquivo ${file.name}:`, error);
-        alert(`Erro ao ler o arquivo ${file.name}.`);
+        alert(`Erro ao ler o arquivo ${file.name}. Verifique o console para detalhes.`);
       }
     }
 
