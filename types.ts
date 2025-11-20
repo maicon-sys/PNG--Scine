@@ -41,36 +41,30 @@ export interface FinancialYear {
   profit: number;
 }
 
-// --- VALUE MATRIX TYPES (STEP 0) - REFACTORED ---
-
+// --- VALUE MATRIX TYPES (STEP 0) ---
 export interface ValueSource {
   arquivo: string;
-  localizacao: string; // "p. 37, quadro 6.3"
-  valorOriginal: number | string; // Valor cru encontrado no arquivo
+  localizacao: string;
+  valor_original: number | string;
 }
 
 export interface ValueEntry {
   id: string;
-  categoria: string; // "receita", "custo_operacional", "investimento_capex", "assinantes", etc.
-  subcategoria?: string; // "OTT", "HUB", "B2C"
-  nome: string; // "Investimento total do projeto em 24 meses"
-  valor: number; // Valor numérico oficial para cálculos
-  moeda?: string; // "BRL", "USD", "%", "unidades"
-  unidade?: string; // "24_meses", "mensal", "total"
-  periodoReferencia?: string; // "M1-M24", "Ano 1"
-  
-  // Auditoria e Rastreabilidade
-  fontesUsadas: ValueSource[];
-  criterioEscolha: string; // "prioridade_documento_revisao", "coerencia_interna", etc.
-  statusResolucao: 'consolidado' | 'conflito_nao_resolvido';
-  
-  valorOficial?: boolean; // Se true, este é o número final a ser usado no plano
+  categoria: string;
+  subcategoria?: string;
+  nome: string;
+  valor: number | string;
+  moeda?: string;
+  unidade?: string;
+  periodo_referencia?: string;
+  fontes_usadas: ValueSource[];
+  criterio_escolha: string;
+  status_resolucao: 'consolidado' | 'conflito_nao_resolvido';
 }
 
 export interface ValueMatrix {
   entries: ValueEntry[];
   generatedAt: number;
-  summary?: string; // Resumo da consolidação
 }
 // -----------------------------------
 

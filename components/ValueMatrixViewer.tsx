@@ -38,7 +38,7 @@ export const ValueMatrixViewer: React.FC<ValueMatrixViewerProps> = ({ matrix }) 
                 0. MATRIZ DE DADOS CONSOLIDADA
             </h2>
             <p className="text-sm text-slate-500 mt-1">
-                {matrix.summary || "Fonte única de verdade para o plano. Dados consolidados."}
+                Fonte única de verdade para o plano (Etapa 0). Dados extraídos e consolidados dos arquivos.
             </p>
         </div>
         <button 
@@ -64,7 +64,7 @@ export const ValueMatrixViewer: React.FC<ValueMatrixViewerProps> = ({ matrix }) 
             {matrix.entries.map((entry) => (
               <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
                 <td className="px-6 py-4">
-                    {entry.statusResolucao === 'consolidado' ? (
+                    {entry.status_resolucao === 'consolidado' ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                             <CheckCircle2 className="w-3 h-3" /> OK
                         </span>
@@ -75,19 +75,16 @@ export const ValueMatrixViewer: React.FC<ValueMatrixViewerProps> = ({ matrix }) 
                     )}
                 </td>
                 <td className="px-6 py-4 font-medium text-slate-500">{entry.categoria.toUpperCase()}</td>
-                <td className="px-6 py-4 text-slate-800 font-semibold">
-                    {entry.nome}
-                    {entry.subcategoria && <span className="block text-xs text-slate-400 font-normal">{entry.subcategoria}</span>}
-                </td>
+                <td className="px-6 py-4 text-slate-800 font-semibold">{entry.nome}</td>
                 <td className="px-6 py-4 font-mono text-blue-700 font-bold bg-blue-50/50 rounded">
-                    {entry.valor.toLocaleString('pt-BR')} <span className="text-xs text-slate-400 font-normal ml-1">{entry.unidade}</span>
+                    {entry.valor} <span className="text-xs text-slate-400 font-normal ml-1">{entry.unidade}</span>
                 </td>
                 <td className="px-6 py-4 text-xs text-slate-500 max-w-xs">
-                    <div className="mb-1 font-medium text-slate-700">Critério: {entry.criterioEscolha}</div>
+                    <div className="mb-1 font-medium text-slate-700">Critério: {entry.criterio_escolha}</div>
                     <ul className="list-disc list-inside space-y-1 opacity-80">
-                        {entry.fontesUsadas.map((f, i) => (
+                        {entry.fontes_usadas.map((f, i) => (
                             <li key={i} className="truncate" title={`${f.arquivo} (${f.localizacao})`}>
-                                {f.arquivo} <span className="text-slate-400">({f.valorOriginal})</span>
+                                {f.arquivo} <span className="text-slate-400">({f.valor_original})</span>
                             </li>
                         ))}
                     </ul>
