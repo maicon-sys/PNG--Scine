@@ -25,41 +25,51 @@ const cleanJsonString = (text: string): string => {
     return cleaned.trim();
 };
 
-// --- ETAPA 0: MATRIZ DE VALORES ---
+// --- ETAPA 0: MATRIZ DE VALORES (REFATORADA) ---
 export const generateValueMatrix = async (context: string): Promise<ValueMatrix> => {
     const ai = getAIClient();
     const model = "gemini-2.5-flash";
 
     const prompt = `
-    ATENÇÃO: EXECUÇÃO DA "ETAPA 0" - CONSOLIDAÇÃO DE DADOS DO PROJETO SCINE.
+    ATENÇÃO: EXECUÇÃO DA "ETAPA 0" - MATRIZ DE VALORES E CONSOLIDAÇÃO DE DADOS.
     
-    Você deve agir como um Auditor Contábil e de Planejamento Sênior.
-    Sua tarefa é ler todos os documentos brutos e criar uma "MATRIZ_DE_VALORES_SCINE" única e confiável.
+    Você é um Auditor Financeiro Sênior especializado em Projetos BRDE/FSA.
+    Sua missão é criar a "FONTE DA VERDADE" numérica para o plano de negócios da SCine.
 
-    INPUT DE DADOS (Arquivos do Usuário):
+    DOCUMENTOS DISPONÍVEIS (INPUT BRUTO):
     """
     ${context}
     """
 
     ----------------------------------------
-    ETAPA 0.A – EXTRAÇÃO BRUTA
+    INSTRUÇÕES DE EXECUÇÃO (MENTAIS):
     ----------------------------------------
-    1. Identifique TODOS os valores numéricos relevantes: Receitas, Custos (OPEX/CAPEX), Assinantes, Prazos, Metas, Indicadores.
-    2. Rastreie a origem (arquivo, página aproximada).
+    
+    PASSO 1: EXTRAÇÃO BRUTA
+    - Identifique TODOS os valores numéricos: Receitas (B2C/B2B), Custos (OPEX/Variável), CAPEX (HUB, Van, TI), Assinantes, Prazos, Indicadores (Payback, TIR).
+    - Mapeie a origem de cada número (Arquivo + Página/Tabela).
+
+    PASSO 2: CONSOLIDAÇÃO E ARBITRAGEM DE CONFLITOS
+    Aplique estas regras RIGOROSAS para definir o valor final ("valorOficial"):
+
+    1. REGRA DE OURO (PRIORIDADE DE DOCUMENTO): 
+       - Documentos com nomes "Revisão", "Novo", "Atualizado", "Consolidado", "Final" TÊM PRECEDÊNCIA TOTAL sobre documentos com nomes "Antigo", "V1", "Rascunho".
+       - Se o arquivo "Orçamento Consolidado 9w" diz X e o "Plano Antigo" diz Y, escolha X.
+
+    2. REGRA DA COERÊNCIA MATEMÁTICA:
+       - Se houver dúvida, verifique a soma. Se (Receita Mensal * 12) = Receita Anual no documento A, mas não no B, o documento A é mais confiável.
+
+    3. REGRA DE CENÁRIOS:
+       - Se os valores diferentes forem claramente "Cenário Otimista" vs "Cenário Realista", NÃO considere conflito. Crie duas entradas separadas na matriz.
+
+    4. REGRA DE CONFLITO INSOLÚVEL:
+       - Se não for possível decidir, marque 'statusResolucao': "conflito_nao_resolvido".
 
     ----------------------------------------
-    ETAPA 0.B – CONSOLIDAÇÃO E REGRAS DE ESCOLHA
+    FORMATO DE SAÍDA (JSON):
     ----------------------------------------
-    Ao encontrar valores para a mesma grandeza, aplique estas regras para escolher o "valor oficial":
-    1. PRIORIDADE: Documentos com nomes como "Revisão", "Novo", "Consolidado", "Atualizado" vencem documentos "Antigos".
-    2. COERÊNCIA INTERNA: Se a soma das partes bater com o total em um documento e no outro não, use o coerente.
-    3. CENÁRIOS: Se forem cenários (Pessimista/Otimista), mantenha ambos como entradas separadas.
-    4. CONFLITO: Se não for possível decidir, marque status "conflito_nao_resolvido".
-
-    NOTA IMPORTANTE: Você tem permissão para adicionar na matriz quaisquer informações relevantes (métricas, datas, taxas) que encontrar nos arquivos e que sejam úteis para o plano de negócios.
-
-    FORMATO DE RESPOSTA (JSON RIGOROSO):
-    Retorne apenas um objeto JSON com a lista de entradas consolidadas.
+    Gere um JSON contendo apenas a matriz consolidada.
+    Não invente valores. Se não existir nos documentos, não crie.
     `;
 
     try {
@@ -67,11 +77,12 @@ export const generateValueMatrix = async (context: string): Promise<ValueMatrix>
             model: model,
             contents: prompt,
             config: {
-                maxOutputTokens: 8192, // Increased limit
+                maxOutputTokens: 8192,
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
+                        summary: { type: Type.STRING, description: "Resumo executivo da consolidação (ex: 'Foram encontrados 30 valores, 2 conflitos resolvidos pela prioridade do arquivo X')." },
                         entries: {
                             type: Type.ARRAY,
                             items: {
@@ -81,41 +92,47 @@ export const generateValueMatrix = async (context: string): Promise<ValueMatrix>
                                     categoria: { type: Type.STRING },
                                     subcategoria: { type: Type.STRING },
                                     nome: { type: Type.STRING },
-                                    valor: { type: Type.STRING },
+                                    valor: { type: Type.NUMBER, description: "Valor numérico puro, sem formatação de moeda." },
                                     moeda: { type: Type.STRING },
                                     unidade: { type: Type.STRING },
-                                    periodo_referencia: { type: Type.STRING },
-                                    fontes_usadas: {
+                                    periodoReferencia: { type: Type.STRING },
+                                    fontesUsadas: {
                                         type: Type.ARRAY,
                                         items: {
                                             type: Type.OBJECT,
                                             properties: {
                                                 arquivo: { type: Type.STRING },
                                                 localizacao: { type: Type.STRING },
-                                                valor_original: { type: Type.STRING }
+                                                valorOriginal: { type: Type.NUMBER }
                                             }
                                         }
                                     },
-                                    criterio_escolha: { type: Type.STRING },
-                                    status_resolucao: { type: Type.STRING, enum: ["consolidado", "conflito_nao_resolvido"] }
-                                }
+                                    criterioEscolha: { type: Type.STRING },
+                                    statusResolucao: { type: Type.STRING, enum: ["consolidado", "conflito_nao_resolvido"] },
+                                    valorOficial: { type: Type.BOOLEAN }
+                                },
+                                required: ["id", "categoria", "nome", "valor", "fontesUsadas", "statusResolucao"]
                             }
                         }
-                    }
+                    },
+                    required: ["entries"]
                 }
             }
         });
         
         const cleanedJson = cleanJsonString(result.text || "{}");
         const json = JSON.parse(cleanedJson);
+        
         return {
             entries: json.entries || [],
+            summary: json.summary || "Matriz gerada.",
             generatedAt: Date.now()
         };
 
     } catch (e) {
-        console.error("Erro na Etapa 0:", e);
-        return { entries: [], generatedAt: Date.now() };
+        console.error("Erro na Etapa 0 (Matriz de Valores):", e);
+        // Retorna estrutura vazia para não quebrar a UI, mas loga o erro
+        return { entries: [], generatedAt: Date.now(), summary: "Erro na geração." };
     }
 };
 
@@ -172,8 +189,9 @@ export const generateSectionContent = async (
     const ai = getAIClient();
     const model = "gemini-2.5-flash";
 
+    // Format matrix context for the AI
     const matrixContext = valueMatrix?.entries.map(e => 
-        `- ${e.nome}: ${e.valor} ${e.unidade || ''} (${e.status_resolucao === 'consolidado' ? '✅' : '⚠️'})`
+        `- ${e.nome} (${e.categoria}): ${e.valor} ${e.unidade || ''} [Status: ${e.statusResolucao}]`
     ).join('\n') || "Matriz de valores não gerada ainda.";
 
     let promptTask = "";
@@ -204,7 +222,8 @@ export const generateSectionContent = async (
         ESTRUTURA OBRIGATÓRIA:
         - Desenvolvimento Técnico (Markdown rico)
         - **### Conclusão e Impacto** (Parágrafo final obrigatório).
-        Baseie-se na MATRIZ DE VALORES abaixo.
+        
+        IMPORTANTE: Use a MATRIZ DE VALORES abaixo como sua única fonte de verdade para números.
         `;
     }
 
@@ -212,8 +231,11 @@ export const generateSectionContent = async (
     Consultor BRDE/FSA. Projeto SCine.
     OBJETIVO: ${goalContext}
     REGRAS BRDE: ${BRDE_FSA_RULES}
-    MATRIZ VALORES (FONTE DA VERDADE):
+    
+    === FONTE DA VERDADE (NÚMEROS OFICIAIS) ===
     ${matrixContext}
+    ============================================
+
     CONTEXTO ANTERIOR: ${previousSections ? previousSections.slice(-3000) : "Início."}
     INPUTS GERAIS: """${context}"""
     RESPOSTAS USUÁRIO: """${userAnswers}"""
@@ -247,7 +269,9 @@ export const generateFinancialData = async (
     const prompt = `
     Analista Financeiro BRDE. SCine.
     REGRAS: ${BRDE_FSA_RULES}
-    MATRIZ DADOS: ${matrixContext}
+    MATRIZ DADOS (USE ESTES NÚMEROS): 
+    ${matrixContext}
+    
     Gere projeção 5 anos (considerando 2 anos carência).
     Output JSON: { "analysis": "Markdown text with conclusion", "data": [{ "year": "Ano 1", "revenue": 0, "expenses": 0, "profit": 0 }] }
     `;
