@@ -1,0 +1,5 @@
+{
+  "name": "Stratégia AI - Gerador de Plano de Negócios",
+  "description": "Aplicação para criação de planos de negócios consolidados (SEBRAE) com consultoria inteligente para financiamentos (BRDE/FSA) e exportação .doc.",
+  "requestFramePermissions": []
+}
