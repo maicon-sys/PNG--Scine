@@ -96,6 +96,12 @@ export interface StrategicMatrix {
 }
 // -----------------------------------
 
+export interface WebSource {
+  url: string;
+  title: string;
+  fetchedAt: number;
+  sourceSectionId: string; // Which section's fix generated this source
+}
 
 export interface AppContextState {
   methodology: string;
@@ -105,6 +111,7 @@ export interface AppContextState {
   assets: ProjectAsset[];
   lastModified?: number;
   strategicMatrix?: StrategicMatrix; // Replaces ValueMatrix
+  webSources?: WebSource[]; 
 }
 
 export interface UploadedFile {

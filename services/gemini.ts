@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, StrategicMatrix, AnalysisGap, BusinessGoal, DiagnosisStepResult, CanvasBlock, SwotBlock, MatrixItem } from "../types";
 import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
@@ -177,11 +176,22 @@ export const runDiagnosisStep = async (
             contents: prompt,
             config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema }
         });
+        
         const json = JSON.parse(cleanJsonString(result.text || "{}"));
+        
+        // FIX: Validate structure and assign defaults if properties are missing to avoid "not iterable" errors
+        if (!Array.isArray(json.logs)) {
+             json.logs = []; 
+        }
+        if (!json.matrixUpdate || typeof json.matrixUpdate !== 'object') {
+             json.matrixUpdate = {};
+        }
+
         return json as DiagnosisStepResult;
+
     } catch (e) {
         console.error(`Erro na Etapa ${stepIndex + 1} (${step.name}):`, e);
-        // Return a structured error response
+        // Return a structured error response that respects the interface
         return {
             logs: [`Erro crítico ao processar a etapa ${stepIndex + 1}. A IA pode estar indisponível ou a resposta foi inválida.`],
             matrixUpdate: {},
@@ -211,32 +221,143 @@ export const generateSectionContent = async (
 
     let promptTask = "";
     if (refinementInstructions) {
-        promptTask = `MODO REVISÃO: Reescreva "${sectionTitle}" com base em: "${refinementInstructions}". CONTEÚDO ATUAL: """${currentContent}"""`;
+        promptTask = `
+        MODO DE OPERAÇÃO: REFINAMENTO
+        SEÇÃO-ALVO: "${sectionTitle}"
+        CONTEÚDO ATUAL PARA BASE: """${currentContent}"""
+        INSTRUÇÃO DE REFINAMENTO: Reescreva o conteúdo seguindo ESTRITAMENTE esta ordem: "${refinementInstructions}".
+        `;
     } else if (childSectionsContent) {
-        promptTask = `MODO SÍNTESE: Escreva a introdução de "${sectionTitle}" baseada nestes filhos: """${childSectionsContent}"""`;
+        promptTask = `
+        MODO DE OPERAÇÃO: SÍNTESE (INTRODUÇÃO)
+        SEÇÃO-ALVO: "${sectionTitle}"
+        TAREFA: Escreva o texto de introdução para esta seção, resumindo os seguintes conteúdos das subseções abaixo. Não crie novos pontos, apenas sintetize o que já existe.
+        CONTEÚDO DAS SUBSEÇÕES PARA RESUMIR: """${childSectionsContent}"""
+        `;
     } else if (currentContent) {
-        promptTask = `MODO CONTINUAÇÃO: Continue o texto a partir de: """${currentContent.slice(-2000)}"""`;
+        promptTask = `
+        MODO DE OPERAÇÃO: CONTINUAÇÃO
+        SEÇÃO-ALVO: "${sectionTitle}"
+        TAREFA: Continue a escrita do texto a partir do ponto em que ele parou. NÃO repita o conteúdo já escrito. Apenas conclua o raciocínio atual de forma coesa.
+        ÚLTIMO TRECHO DO CONTEÚDO ATUAL: """${currentContent.slice(-2000)}"""
+        `;
     } else {
-        promptTask = `TAREFA: Escreva "${sectionTitle}". DIRETRIZES: ${sectionDescription}. ESTRUTURA: Desenvolvimento + '### Conclusão e Impacto'.`;
+        promptTask = `
+        MODO DE OPERAÇÃO: GERAÇÃO INICIAL
+        SEÇÃO-ALVO: "${sectionTitle}"
+        TAREFA: Escrever o conteúdo completo para a seção, atendendo a todos os requisitos listados abaixo.
+        
+        **REQUISITOS OBRIGATÓRIOS (ENTREGA):**
+        A sua resposta DEVE atender a TODOS os seguintes pontos descritos abaixo. Trate-os como um checklist rigoroso. A descrição é a sua principal diretriz.
+        """
+        ${sectionDescription}
+        """
+        `;
     }
 
     const prompt = `
-    Consultor BRDE/FSA para o projeto SCine. Objetivo: ${goalContext}.
-    FONTE DA VERDADE (MATRIZ ESTRATÉGICA): ${matrixContext}
-    INPUTS GERAIS: """${context}"""
+    ATUE COMO: Consultor Especialista em Planos de Negócio, com foco nos critérios do BRDE/FSA e na metodologia SEBRAE para o projeto SCine.
+    OBJETIVO GERAL DO PLANO: ${goalContext}.
+    
+    FONTES DE DADOS DISPONÍVEIS:
+    1.  **MATRIZ ESTRATÉGICA (FONTE DA VERDADE):** ${matrixContext}
+    2.  **CONTEXTO GERAL DO PROJETO (Documentos, Anotações):** """${context}"""
+    
     ${promptTask}
+
+    REGRAS GERAIS DE FORMATAÇÃO E CONDUTA:
+    - O texto deve ser inteiramente narrativo, técnico e profissional.
+    - Comece a escrever diretamente o conteúdo solicitado. NÃO repita o título da seção no início do texto.
+    - É ESTRITAMENTE PROIBIDO criar capítulos ou subseções com novas numerações (ex: "10.8", "14.5", "2.1.1.1"). Mantenha-se fiel à estrutura do plano.
+    - Use as FONTES DE DADOS para embasar todos os seus argumentos. Não invente informações.
     `;
 
     try {
         const result = await ai.models.generateContent({
             model,
             contents: prompt,
-            config: { maxOutputTokens: 8192, tools: [{ googleSearch: {} }] }
+            config: { 
+                maxOutputTokens: 8192, 
+                // System instruction to prevent hallucination of document structure
+                systemInstruction: "Você é um redator técnico focado e obediente. Você deve escrever APENAS o texto da seção solicitada. É ESTRITAMENTE PROIBIDO criar novos capítulos, numerações de tópicos (como 10.8, 14.5) ou fugir do tema específico da seção. Se você inventar tópicos que não existem na solicitação, o projeto será reprovado."
+            }
         });
         return result.text || "Erro: A IA não retornou conteúdo.";
     } catch (e) {
         console.error(`Erro ao gerar seção ${sectionTitle}:`, e);
         return "Ocorreu um erro ao gerar o conteúdo. Por favor, tente novamente.";
+    }
+};
+
+export const fixSectionContentWithSearch = async (
+    sectionTitle: string,
+    validationFeedback: string,
+    currentContent: string,
+    methodology: string,
+    context: string,
+    goalContext: string,
+    strategicMatrix: StrategicMatrix | undefined
+): Promise<{ newContent: string; sources: { url: string; title: string }[] }> => {
+    const ai = getAIClient();
+    const model = "gemini-2.5-flash"; 
+
+    const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz estratégica não disponível.";
+
+    const prompt = `
+    ATUE COMO: Consultor Sênior de Projetos do BRDE em MODO DE CORREÇÃO.
+    OBJETIVO GERAL DO PLANO: ${goalContext}.
+
+    SEÇÃO-ALVO: "${sectionTitle}"
+    CONTEÚDO ATUAL COM ERRO: """${currentContent}"""
+    
+    PROBLEMA IDENTIFICADO PELA AUDITORIA (FEEDBACK):
+    """
+    ${validationFeedback}
+    """
+
+    TAREFA OBRIGATÓRIA:
+    1.  **Use a ferramenta de Pesquisa Google (googleSearch)** para encontrar informações atualizadas, dados, estatísticas ou exemplos que resolvam o problema apontado no feedback.
+    2.  **Reescreva o conteúdo da seção** para corrigir COMPLETAMENTE o erro. A nova versão deve ser robusta, bem fundamentada e convincente.
+    3.  **NÃO se desculpe pelo erro nem mencione o processo de correção no texto final.** Apenas entregue o texto corrigido como se fosse a versão original e correta.
+    4.  Sua resposta será usada para substituir o conteúdo antigo.
+
+    FONTES DE DADOS ADICIONAIS:
+    -   MATRIZ ESTRATÉGICA: ${matrixContext}
+    -   CONTEXTO GERAL DO PROJETO: """${context}"""
+
+    REGRAS DE FORMATAÇÃO:
+    - O texto deve ser inteiramente narrativo, técnico e profissional.
+    - Comece a escrever diretamente o conteúdo corrigido. NÃO inclua o título da seção.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+                maxOutputTokens: 8192,
+                tools: [{ googleSearch: {} }],
+            }
+        });
+
+        const newContent = response.text || "Erro: A IA não retornou conteúdo corrigido.";
+        
+        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        const sources: { url: string; title: string }[] = [];
+        if (Array.isArray(groundingChunks)) {
+            groundingChunks.forEach(chunk => {
+                if (chunk.web) {
+                    sources.push({ url: chunk.web.uri, title: chunk.web.title });
+                }
+            });
+        }
+        
+        const uniqueSources = Array.from(new Map(sources.map(item => [item.url, item])).values());
+
+        return { newContent, sources: uniqueSources };
+    } catch (e) {
+        console.error(`Erro ao corrigir seção ${sectionTitle} com pesquisa:`, e);
+        throw new Error("Falha na comunicação com a IA durante a correção. Tente novamente.");
     }
 };
 
@@ -289,7 +410,7 @@ export const generateProjectImage = async (promptDescription: string): Promise<s
 };
 
 export const validateCompletedSections = async (
-    completedSections: { id: string, title: string, content: string }[],
+    completedSections: { id: string; title: string; content: string }[],
     strategicMatrix: StrategicMatrix | null,
     methodology: string,
     goal: BusinessGoal

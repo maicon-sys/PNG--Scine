@@ -183,7 +183,35 @@ export const INITIAL_SECTIONS: PlanSection[] = [
 
   // 2.1 CLIENTES
   { id: '2.1.0', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.0 Introdução aos Clientes', description: 'Resumo executivo sobre quem é o cliente da SCine.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
-  { id: '2.1.1', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.1 Perfil Demográfico', description: 'Entrega: Tabelas/gráficos com idade, gênero, escolaridade, renda.\nBRDE: Avalia se esse público tem renda suficiente.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '2.1.1', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.1 Perfil Demográfico', description: `Escreva o tópico 2.1.1 – Perfil Demográfico (gênero, idade, renda e localização) da Análise de Mercado da SCine, seguindo rigorosamente o padrão exigido pela Metodologia Sebrae e pelo BRDE/FSA.
+
+O texto deve ser inteiramente narrativo, sem lista de tópicos, fornecendo uma análise completa, profunda e estratégica sobre quem é o público-alvo da SCine.
+
+Use todos os dados disponíveis nos documentos do projeto, incluindo a Pesquisa SCine, e complete a análise com referências externas confiáveis, como IBGE/PNAD, TIC Domicílios e DataReportal (incluindo links das fontes).
+
+O texto deve obrigatoriamente:
+
+apresentar a distribuição demográfica (gênero, idade, renda, localização) com base nos dados reais;
+
+explicar o que esses dados significam para o negócio;
+
+relacionar o perfil ao comportamento de consumo de streaming no Brasil;
+
+demonstrar como esse perfil comprova a existência de demanda para uma plataforma regional como a SCine;
+
+mostrar como o perfil demográfico sustenta a viabilidade das assinaturas (compatibilidade entre renda e preço);
+
+argumentar como esse público reduz riscos para o empréstimo do BRDE, indicando aderência cultural, estabilidade financeira e potencial de retenção;
+
+integrar a análise com o posicionamento da plataforma (identidade regional, cultura, conteúdo local, acessibilidade);
+
+contextualizar a relevância do público catarinense como mercado prioritário;
+
+apresentar interpretação estratégica (não apenas porcentagens);
+
+ser tecnicamente convincente para um parecerista profissional.
+
+O resultado final deve ser uma análise demográfica completa, crítica e interpretada, entregando exatamente o que o Sebrae e o BRDE esperam neste tópico do Plano de Negócio.`, content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '2.1.2', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.2 Hábitos de Consumo', description: 'Entrega: Frequência de consumo, outras assinaturas.\nBRDE: Hábito de pagar streaming existe?', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '2.1.3', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.3 Disposição a Pagar', description: 'Entrega: Faixas de preço aceitáveis. Sensibilidade.\nBRDE: Validação do preço proposto.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '2.1.4', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.4 Motivações e Barreiras', description: 'Entrega: Motivos para assinar vs Barreiras.\nBRDE: Plano para contornar obstáculos.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },

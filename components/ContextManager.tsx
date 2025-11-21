@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Upload, FileText, Trash2, Settings, Plus, Target, Loader2, ImageIcon, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Upload, FileText, Trash2, Settings, Plus, Target, Loader2, ImageIcon, AlertCircle, CheckCircle2, Globe, Link } from 'lucide-react';
 import { AppContextState, UploadedFile, BusinessGoal, ProjectAsset } from '../types';
 
 interface ContextManagerProps {
@@ -110,6 +110,12 @@ export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate 
     const newFiles = [...state.uploadedFiles];
     newFiles.splice(index, 1);
     onUpdate({ uploadedFiles: newFiles });
+  };
+
+  const removeWebSource = (index: number) => {
+    const newSources = [...(state.webSources || [])];
+    newSources.splice(index, 1);
+    onUpdate({ webSources: newSources });
   };
 
   const fullContext = `
@@ -245,6 +251,30 @@ ${state.assets.map(a => `- ${a.description} (${a.type})`).join('\n')}
           placeholder="Cole aqui rascunhos, ideias ou informações importantes..."
         />
       </div>
+
+      {state.webSources && state.webSources.length > 0 && (
+        <div className="space-y-2">
+          <label className="flex items-center text-sm font-semibold text-gray-800 gap-2">
+            <Globe className="w-4 h-4 text-blue-600" />
+            Fontes da Web (Coletadas pela IA)
+          </label>
+          <div className="mt-2 space-y-2 max-h-40 overflow-y-auto">
+            {(state.webSources || []).map((source, idx) => (
+              <div key={idx} className="flex items-center justify-between p-2 rounded border text-sm bg-blue-50 border-blue-200">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <Link className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                  <a href={source.url} target="_blank" rel="noopener noreferrer" className="truncate text-blue-800 hover:underline" title={source.url}>
+                    {source.title || new URL(source.url).hostname}
+                  </a>
+                </div>
+                <button onClick={() => removeWebSource(idx)} className="text-red-500 hover:text-red-700 p-1 flex-shrink-0">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg">
         <p className="text-xs text-blue-800 font-medium">
