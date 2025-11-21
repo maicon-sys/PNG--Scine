@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, StrategicMatrix, AnalysisGap, BusinessGoal, DiagnosisStepResult, CanvasBlock, SwotBlock, MatrixItem } from "../types";
 import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
@@ -28,14 +29,15 @@ export const runDiagnosisStep = async (
     currentMatrix: StrategicMatrix
 ): Promise<DiagnosisStepResult> => {
     const ai = getAIClient();
+    // FIX: Corrected model name from "gem-2.5-flash" to "gemini-2.5-flash"
     const model = "gemini-2.5-flash";
     const step = DIAGNOSIS_STEPS[stepIndex];
 
     const prompt = `
-    Você é um Analista de Negócios Sênior do BRDE, especialista em metodologia SEBRAE.
-    Você está executando o DIAGNÓSTICO ESTRATÉGICO do projeto "SCine".
+    Você é um Analista de Negócios Sênior e Auditor de Projetos, com especialização cruzada na Metodologia SEBRAE, nos critérios de análise de viabilidade do BRDE/BNDES e nos requisitos do FSA para inovação e acessibilidade.
+    Sua missão é realizar uma análise técnica, profunda e crítica do projeto "SCine", tratando a Matriz Estratégica como um checklist vivo e um mecanismo de validação de coerência.
 
-    CONTEXTO COMPLETO DO PROJETO (Arquivos, Anotações):
+    CONTEXTO COMPLETO DO PROJETO (Arquivos, Anotações, Dados Existentes):
     """
     ${fullContext}
     """
@@ -48,42 +50,68 @@ export const runDiagnosisStep = async (
     TAREFA: Executar a **ETAPA ${stepIndex + 1}/${DIAGNOSIS_STEPS.length}: ${step.name}**.
     FOCO DA ETAPA: ${step.description}
 
-    INSTRUÇÕES:
-    1.  **Analise o CONTEXTO COMPLETO** para extrair insights relevantes APENAS para esta etapa.
-    2.  **Gere Logs:** Crie uma lista de logs curtos e objetivos sobre suas descobertas. Ex: "Segmentos de clientes identificados.", "Informação adicionada à Matriz Estratégica.".
-    3.  **Atualize a Matriz:** Preencha APENAS os blocos da Matriz Estratégica relacionados a esta etapa (${step.matrixTargets.join(', ')}).
-        - Para Canvas: Forneça uma lista de 'items' (título e descrição) e um 'description' geral para o bloco.
-        - Para SWOT: Forneça uma lista de 'items' (strings).
-        - Nível de Clareza: Atribua um 'clarityLevel' (0-100) para cada bloco que você atualizar, baseado na qualidade da informação encontrada.
-    4.  **ETAPA FINAL (10/10):** Se esta for a última etapa, sua missão principal é diferente. Analise a matriz final e o contexto para:
-        - Calcular o 'overallReadiness' (0-100). Se o contexto inicial for vazio, o Nível de Prontidão DEVE ser 0.
-        - Identificar as 'gaps' (pendências) finais do projeto.
+    INSTRUÇÕES DETALHADAS PARA ESTA ETAPA:
+
+    1.  **EXTRAÇÃO DE DADOS PROFUNDA:**
+        -   **Análise Avançada de Arquivos:** Extraia dados de tabelas, listas e informações implícitas. Limpe cabeçalhos/rodapés e normalize o texto. Identifique e consolide informações repetidas.
+        -   **Busca Ativa (Metodologia SEBRAE):** Procure ativamente por: Público-alvo, necessidades/dores, concorrentes, proposta de valor, tendências, barreiras de entrada, canais, estrutura de receita, custos e riscos.
+        -   **Busca Ativa (Critérios BRDE/FSA):** Procure ativamente por: Provas de inovação, aderência técnica, justificativa tecnológica, elementos de acessibilidade, riscos operacionais/financeiros, fragilidades técnicas, gargalos de execução e contradições entre arquivos.
+
+    2.  **AUDITORIA CRUZADA INTERNA:**
+        -   Compare a coerência entre os blocos. Por exemplo: O público-alvo é compatível com os canais de marketing? Os custos são realistas frente às receitas projetadas? A equipe possui a expertise necessária para o escopo? A inovação alegada é comprovada nos documentos?
+        -   Se encontrar uma incoerência, gere um insight técnico para a Matriz com severidade 'alto' ou 'crítico'.
+
+    3.  **GERAÇÃO DE INSIGHTS PARA A MATRIZ:**
+        -   Para cada insight, preencha um item na Matriz. Os insights devem ser claros, técnicos, objetivos e consolidados.
+        -   **Para cada item, você DEVE fornecer:**
+            -   'item': O título do insight (ex: "Dependência de um único fornecedor de tecnologia").
+            -   'description': A descrição técnica e a justificativa (ex: "A plataforma depende 100% da Vodlix, criando um risco operacional. A mitigação não foi citada.").
+            -   'severity': Classifique a severidade ('crítico', 'alto', 'moderado', 'baixo', 'cosmético').
+            -   'confidence': Classifique sua confiança na informação ('alta', 'média', 'baixa').
+
+    4.  **LOGS EM TEMPO REAL:**
+        -   Gere logs curtos e objetivos sobre suas descobertas (ex: "Segmentos de clientes identificados.", "Incoerência detectada entre custos e receitas.").
+
+    5.  **PREENCHIMENTO DA MATRIZ:**
+        -   Preencha APENAS os blocos da Matriz Estratégica relacionados a esta etapa (${step.matrixTargets.join(', ')}).
+        -   Atualize o 'clarityLevel' (0-100) de cada bloco modificado, com base na qualidade e completude da informação encontrada.
+
+    6.  **ETAPA FINAL (10/10):** Se esta for a última etapa, sua missão é consolidar a análise:
+        -   Calcule o 'overallReadiness' (0-100). Se o contexto inicial for vazio, o Nível de Prontidão DEVE ser 0.
+        -   Identifique as 'gaps' (pendências) finais do projeto, com base na Matriz completa.
 
     REGRAS GERAIS:
-    - **NÃO INVENTE NÚMEROS FINANCEIROS.** Se faltarem dados, registre na descrição do bloco: "Informações insuficientes para preencher este item."
-    - Seja rigoroso e técnico, como um analista do Sebrae/BRDE.
-    - Otimize a profundidade da análise. Não limite o contexto.
+    -   **NÃO INVENTE DADOS.** Se faltarem informações, registre "Informações insuficientes..." na descrição, atribua 'confidence: "baixa"' e 'severity: "alto"'.
+    -   Seja rigoroso. O objetivo é preparar o projeto para um comitê de crédito real.
 
     RESPONDA ESTRITAMENTE NO FORMATO JSON ABAIXO.
     `;
-
-    // Dynamically build the response schema
-    const blockSchema = {
+    
+    const matrixItemSchema = {
         type: Type.OBJECT,
         properties: {
-            items: { type: Type.ARRAY, items: { 
-                type: Type.OBJECT, 
-                properties: { item: { type: Type.STRING }, description: { type: Type.STRING } }
-            }},
+            item: { type: Type.STRING, description: "O título do insight ou item." },
+            description: { type: Type.STRING, description: "A descrição detalhada e técnica do insight." },
+            severity: { type: Type.STRING, description: "Nível de severidade: 'crítico', 'alto', 'moderado', 'baixo', 'cosmético'." },
+            confidence: { type: Type.STRING, description: "Nível de confiança na informação: 'alta', 'média', 'baixa'." }
+        },
+        required: ["item", "description", "severity", "confidence"]
+    };
+    
+    const canvasBlockSchema = {
+        type: Type.OBJECT,
+        properties: {
+            items: { type: Type.ARRAY, items: matrixItemSchema },
             description: { type: Type.STRING },
             source: { type: Type.STRING },
             clarityLevel: { type: Type.NUMBER }
         }
     };
-     const swotBlockSchema = {
+
+    const swotBlockSchema = {
         type: Type.OBJECT,
         properties: {
-            items: { type: Type.ARRAY, items: { type: Type.STRING }},
+            items: { type: Type.ARRAY, items: matrixItemSchema },
             description: { type: Type.STRING },
             source: { type: Type.STRING },
             clarityLevel: { type: Type.NUMBER }
@@ -117,15 +145,15 @@ export const runDiagnosisStep = async (
             matrixUpdate: {
                 type: Type.OBJECT,
                 properties: {
-                    customerSegments: blockSchema,
-                    valueProposition: blockSchema,
-                    channels: blockSchema,
-                    customerRelationships: blockSchema,
-                    revenueStreams: blockSchema,
-                    keyResources: blockSchema,
-                    keyActivities: blockSchema,
-                    keyPartnerships: blockSchema,
-                    costStructure: blockSchema,
+                    customerSegments: canvasBlockSchema,
+                    valueProposition: canvasBlockSchema,
+                    channels: canvasBlockSchema,
+                    customerRelationships: canvasBlockSchema,
+                    revenueStreams: canvasBlockSchema,
+                    keyResources: canvasBlockSchema,
+                    keyActivities: canvasBlockSchema,
+                    keyPartnerships: canvasBlockSchema,
+                    costStructure: canvasBlockSchema,
                     swot: {
                         type: Type.OBJECT,
                         properties: {

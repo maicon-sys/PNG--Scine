@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { 
   LayoutDashboard, FileText, Download, CheckCircle2, Loader2,
@@ -286,17 +280,18 @@ const App: React.FC = () => {
         // Handle final step
         if (i === DIAGNOSIS_STEPS.length - 1 && stepResult.finalDiagnosis) {
              const timestamp = Date.now();
-             // FIX: Ensure 'gaps' from API response is an array before mapping over it to prevent crashes.
-             const gapsFromApi = stepResult.finalDiagnosis.gaps;
-             const finalGaps: AnalysisGap[] = Array.isArray(gapsFromApi)
-                ? gapsFromApi.map(g => ({
+             // FIX: Refactored gap mapping to be more robust against unexpected API response types.
+             const gapsFromApi = stepResult.finalDiagnosis?.gaps;
+             let finalGaps: AnalysisGap[] = [];
+             if (Array.isArray(gapsFromApi)) {
+                finalGaps = gapsFromApi.map(g => ({
                     ...g,
                     status: 'OPEN',
                     resolutionScore: 0,
                     createdAt: timestamp,
                     updatedAt: timestamp,
-                }))
-                : [];
+                }));
+             }
 
             const finalDiagnosis: DiagnosisResponse = {
                 timestamp,

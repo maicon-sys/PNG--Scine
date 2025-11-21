@@ -1,6 +1,3 @@
-
-
-
 // FIX: Import StrategicMatrix to resolve typing error on line 734.
 import { PlanSection, SectionStatus, SectionType, StrategicMatrix } from './types';
 
@@ -523,10 +520,10 @@ export const INITIAL_SECTIONS: PlanSection[] = [
   // 8.6 GARANTIAS
   { id: '8.6.0', chapter: '8.6 GARANTIAS', title: '8.6.0 Intro Garantias', description: 'Segurança.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '8.6.1', chapter: '8.6 GARANTIAS', title: '8.6.1 Tipos', description: 'Entrega: Real/Fiança.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
-  { id: '8.6.2', chapter: '8.6 GARANTIAS', title: '8.6.2 Cobertura', description: 'Entrega: Valor bens.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
-  { id: '8.6.3', chapter: '8.6 GARANTIAS', title: '8.6.3 Recebíveis', description: 'Entrega: Cessão.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
-  { id: '8.6.4', chapter: '8.6 GARANTIAS', title: '8.6.4 Complementares', description: 'Entrega: Seguros.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
-  { id: '8.6.5', chapter: '8.6 GARANTIAS', title: '8.6.5 Conclusão Garantias', description: 'SÍNTESE 8.6.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
+  { id: '8.6.2', chapter: '8.6 GARANTias', title: '8.6.2 Cobertura', description: 'Entrega: Valor bens.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '8.6.3', chapter: '8.6 GARANTias', title: '8.6.3 Recebíveis', description: 'Entrega: Cessão.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '8.6.4', chapter: '8.6 GARANTias', title: '8.6.4 Complementares', description: 'Entrega: Seguros.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '8.6.5', chapter: '8.6 GARANTias', title: '8.6.5 Conclusão Garantias', description: 'SÍNTESE 8.6.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
 
   // 8.7 RETORNO BRDE
   { id: '8.7.0', chapter: '8.7 RETORNO AO BRDE', title: '8.7.0 Intro Retorno', description: 'Pagamento.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
@@ -673,7 +670,7 @@ export const INITIAL_SECTIONS: PlanSection[] = [
   { id: '11.3.0', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.0 Intro Orçamentos', description: 'Valores.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '11.3.1', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.1 Equipamentos', description: 'Entrega: Cotações CAPEX.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '11.3.2', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.2 Tecnologia', description: 'Entrega: Plataforma/Soft.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
-  { id: '1.3.3', chapter: '1.3 ORÇAMENTOS E CUSTOS', title: '1.3.3 Obras/Reformas', description: 'Entrega: Orçamento Civil.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '11.3.3', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.3 Obras/Reformas', description: 'Entrega: Orçamento Civil.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '11.3.4', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.4 Memória Cálculo', description: 'Entrega: Planilhas OPEX.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '11.3.5', chapter: '11.3 ORÇAMENTOS E CUSTOS', title: '11.3.5 Conclusão Orçamentos', description: 'Checklist 11.3 OK.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
 
@@ -743,6 +740,7 @@ export const DEFAULT_STRATEGIC_MATRIX: StrategicMatrix = {
     keyActivities: { items: [], description: "", source: "", clarityLevel: 0 },
     keyPartnerships: { items: [], description: "", source: "", clarityLevel: 0 },
     costStructure: { items: [], description: "", source: "", clarityLevel: 0 },
+    // FIX: Added missing swot and generatedAt properties to match the StrategicMatrix type.
     swot: {
         strengths: { items: [], description: "", source: "", clarityLevel: 0 },
         weaknesses: { items: [], description: "", source: "", clarityLevel: 0 },

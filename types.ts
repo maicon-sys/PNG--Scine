@@ -2,6 +2,8 @@
 
 
 
+
+
 export enum SectionStatus {
   PENDING = 'PENDING',
   ANALYZING = 'ANALYZING', // AI is checking if info is missing
@@ -48,9 +50,14 @@ export interface FinancialYear {
 }
 
 // --- NEW STRATEGIC MATRIX TYPES ---
+export type Severity = 'crítico' | 'alto' | 'moderado' | 'baixo' | 'cosmético';
+export type Confidence = 'alta' | 'média' | 'baixa';
+
 export interface MatrixItem {
     item: string;
     description: string;
+    severity: Severity;
+    confidence: Confidence;
 }
 
 export interface CanvasBlock {
@@ -61,7 +68,7 @@ export interface CanvasBlock {
 }
 
 export interface SwotBlock {
-    items: string[];
+    items: MatrixItem[]; // Changed from string[] to support severity/confidence
     description: string;
     source: string;
     clarityLevel: number; // 0-100%
