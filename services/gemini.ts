@@ -2,55 +2,94 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, StrategicMatrix, AnalysisGap, BusinessGoal, DiagnosisStepResult, CanvasBlock, SwotBlock, MatrixItem } from "../types";
 import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
 
-// Helper to clean JSON string from Markdown fences and other garbage
+// Helper to clean JSON string safely (State Machine Parser)
 const cleanJsonString = (text: string): string => {
     if (!text) return "{}";
 
-    // Find the start of the JSON content
-    const startIndex = text.indexOf('{');
-    const startBracketIndex = text.indexOf('[');
-    
-    let actualStartIndex = -1;
-    if (startIndex > -1 && startBracketIndex > -1) {
-        actualStartIndex = Math.min(startIndex, startBracketIndex);
-    } else if (startIndex > -1) {
-        actualStartIndex = startIndex;
-    } else {
-        actualStartIndex = startBracketIndex;
-    }
+    // 1. Locate the outermost JSON block
+    const firstOpen = text.indexOf('{');
+    const firstArray = text.indexOf('[');
+    let start = -1;
+    if (firstOpen > -1 && firstArray > -1) start = Math.min(firstOpen, firstArray);
+    else if (firstOpen > -1) start = firstOpen;
+    else if (firstArray > -1) start = firstArray;
 
-    if (actualStartIndex === -1) {
-        return "{}"; // No JSON object or array found
-    }
+    if (start === -1) return "{}";
 
-    // Find the end of the JSON content
-    const endIndex = text.lastIndexOf('}');
-    const endBracketIndex = text.lastIndexOf(']');
-    const actualEndIndex = Math.max(endIndex, endBracketIndex);
+    const lastClose = text.lastIndexOf('}');
+    const lastArray = text.lastIndexOf(']');
+    const end = Math.max(lastClose, lastArray);
 
-    if (actualEndIndex === -1) {
-        return "{}"; // Malformed JSON
-    }
+    if (end === -1 || end < start) return "{}";
 
-    let jsonString = text.substring(actualStartIndex, actualEndIndex + 1);
+    const jsonCandidate = text.substring(start, end + 1);
 
-    // Remove comments (block and line)
-    // Be careful: this regex might be aggressive if inside strings, but for standard JSON output from AI it's usually fine.
-    // Ideally, comment stripping should also respect strings, but this is a secondary cleanup.
-    jsonString = jsonString.replace(/\/\*[\s\S]*?\*\/|([^:]|^)\/\/.*$/gm, '$1');
+    // 2. Parser state machine to safely remove comments and trailing commas
+    let out = '';
+    let i = 0;
+    let inString = false;
+    let isEscaped = false;
 
-    // Safe trailing comma removal:
-    // This regex matches either a double-quoted string (Group 1) OR a trailing comma pattern (Group 2).
-    // If Group 1 matches, we return it as is (preserving content).
-    // If Group 2 matches (comma followed by whitespace and closing bracket), we return just the closing bracket.
-    jsonString = jsonString.replace(/("[^"\\]*(?:\\.[^"\\]*)*")|,\s*([\]}])/g, (match, stringGroup, closingGroup) => {
-        if (stringGroup) {
-            return stringGroup; // It's a string, preserve it completely
+    while (i < jsonCandidate.length) {
+        const char = jsonCandidate[i];
+        const next = jsonCandidate[i + 1] || '';
+
+        if (inString) {
+            out += char;
+            if (isEscaped) {
+                isEscaped = false;
+            } else if (char === '\\') {
+                isEscaped = true;
+            } else if (char === '"') {
+                inString = false;
+            }
+            i++;
+            continue;
         }
-        return closingGroup; // It's a trailing comma, remove the comma (return just ] or })
-    });
 
-    return jsonString;
+        // Not in string
+        if (char === '"') {
+            inString = true;
+            out += char;
+            i++;
+            continue;
+        }
+
+        // Handle Single-line comments //
+        if (char === '/' && next === '/') {
+            i += 2;
+            // Skip until newline
+            while (i < jsonCandidate.length && jsonCandidate[i] !== '\n') i++;
+            continue; 
+        }
+
+        // Handle Block comments /* */
+        if (char === '/' && next === '*') {
+            i += 2;
+            // Skip until */
+            while (i < jsonCandidate.length && !(jsonCandidate[i] === '*' && jsonCandidate[i + 1] === '/')) i++;
+            i += 2; // skip the closing */
+            continue;
+        }
+
+        // Handle Trailing Commas
+        if (char === ',') {
+            // Look ahead for closing brace/bracket, skipping whitespace
+            let j = i + 1;
+            while (j < jsonCandidate.length && /\s/.test(jsonCandidate[j])) j++;
+            if (j < jsonCandidate.length && (jsonCandidate[j] === '}' || jsonCandidate[j] === ']')) {
+                // It is a trailing comma, skip it
+                i++;
+                continue;
+            }
+        }
+
+        // Regular character
+        out += char;
+        i++;
+    }
+
+    return out;
 };
 
 // --- NEW 10-STEP DIAGNOSIS ENGINE ---
@@ -316,7 +355,7 @@ export const generateSectionContent = async (
     }
 
     const prompt = `
-    ATUE COMO: Consultor Especialista em Planos de Negócio, com foco nos critérios do BRDE/FSA e na metodologia SEBRAE para o projeto SCine.
+    ATUE COMO: Consultor Especialista em Planos de Negócios, com foco nos critérios do BRDE/FSA e na metodologia SEBRAE para o projeto SCine.
     OBJETIVO GERAL DO PLANO: ${goalContext}.
     
     FONTES DE DADOS DISPONÍVEIS:
