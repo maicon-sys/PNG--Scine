@@ -221,14 +221,14 @@ export interface Project {
   versions: ProjectVersion[];
 }
 
-// Fix: Add AIStudio interface to be used in the global Window type.
-export interface AIStudio {
-  hasSelectedApiKey: () => Promise<boolean>;
-  openSelectKey: () => Promise<void>;
-}
-
 // Add global definition for window properties
 declare global {
+  // Fix: Add AIStudio interface to be used in the global Window type.
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
   interface Window {
     pdfjsLib: any;
     jspdf: any;
