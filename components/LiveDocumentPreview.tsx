@@ -15,6 +15,7 @@ interface LiveDocumentPreviewProps {
 export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projectName, sections, assets, onClose }) => {
   const docRef = useRef<HTMLDivElement>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState(0);
   const [scriptsLoaded, setScriptsLoaded] = useState(false);
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     }
     
     setIsGeneratingPdf(true);
+    setPdfProgress(0);
     
     // FIX: Create a temporary off-screen container to render the full content
     // without scroll limitations, ensuring html2canvas captures everything.
@@ -83,6 +85,10 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
                 wrapper.style.overflow = 'visible';
             });
           },
+          // FIX: Implement incremental progress bar for better user experience.
+          onprogress: (progress) => {
+            setPdfProgress(progress * 100);
+          },
         },
         pagebreak: { mode: 'css', before: '.break-before-page', after: '.break-after-page' }
       });
@@ -94,6 +100,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
       // Clean up by removing the temporary container from the DOM
       document.body.removeChild(captureContainer);
       setIsGeneratingPdf(false);
+      setPdfProgress(0);
     }
   };
 
@@ -172,13 +179,18 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
           <button 
             onClick={handleDownloadPdf}
             disabled={isGeneratingPdf || !scriptsLoaded}
-            className="flex items-center justify-center gap-2 px-4 py-2 w-48 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium shadow-sm transition-colors disabled:bg-blue-400 disabled:cursor-wait"
+            className={`flex items-center justify-center w-48 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium shadow-sm transition-colors disabled:bg-blue-400 disabled:cursor-wait ${isGeneratingPdf ? 'px-4 py-1.5' : 'px-4 py-2 gap-2'}`}
           >
             {isGeneratingPdf ? (
-                <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Gerando PDF...</span>
-                </>
+                <div className="w-full flex flex-col items-center">
+                    <div className="flex items-center justify-center gap-2 text-sm">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Gerando... ({Math.round(pdfProgress)}%)</span>
+                    </div>
+                    <div className="w-full bg-blue-900/50 rounded-full h-1 mt-1">
+                        <div className="bg-white h-1 rounded-full transition-all duration-300 ease-linear" style={{ width: `${pdfProgress}%` }}></div>
+                    </div>
+                </div>
             ) : !scriptsLoaded ? (
                 <>
                     <Loader2 className="w-4 h-4 animate-spin" />
