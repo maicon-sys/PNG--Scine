@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { HardDrive, Check, Loader2, FolderPlus, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { HardDrive, Check, Loader2, FolderPlus } from 'lucide-react';
 
 interface GoogleDriveIntegrationProps {
   projectName: string;
@@ -14,10 +14,27 @@ export const GoogleDriveIntegration: React.FC<GoogleDriveIntegrationProps> = ({ 
   const [isLoading, setIsLoading] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState(`Projetos SCine`);
 
+  // Ref to track active timeouts
+  const timersRef = useRef<NodeJS.Timeout[]>([]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      // Clear all pending timeouts when component unmounts
+      timersRef.current.forEach(clearTimeout);
+    };
+  }, []);
+
+  // Helper to register timeouts so they can be cleared
+  const safeSetTimeout = (fn: () => void, delay: number) => {
+    const id = setTimeout(fn, delay);
+    timersRef.current.push(id);
+  };
+
   const handleAuth = () => {
     setIsLoading(true);
     // Simulate OAuth delay
-    setTimeout(() => {
+    safeSetTimeout(() => {
       setIsLoading(false);
       setStep('folder');
     }, 1500);
@@ -27,14 +44,13 @@ export const GoogleDriveIntegration: React.FC<GoogleDriveIntegrationProps> = ({ 
     setIsLoading(true);
     
     // Naming convention: [NOME_DO_PROJETO] - Plano de Negócio - Versão [VX]
-    const finalFileName = `${projectName} - Plano de Negócio - Versão V${currentVersion}`;
     const finalFolderName = selectedFolder;
 
-    setTimeout(() => {
+    safeSetTimeout(() => {
       setIsLoading(false);
       setStep('success');
       // Pass fake IDs
-      setTimeout(() => {
+      safeSetTimeout(() => {
          onConnect(finalFolderName, `file-id-${Date.now()}`);
       }, 1000);
     }, 1500);

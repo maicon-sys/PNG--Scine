@@ -10,10 +10,13 @@ export const SelectApiKeyModal: React.FC<SelectApiKeyModalProps> = ({ onClose, o
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSelectApiKey = async () => {
-    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+    // Cast window to any to access aistudio properties without strict typing issues
+    const aistudio = (window as any).aistudio;
+    
+    if (aistudio && typeof aistudio.openSelectKey === 'function') {
       setIsLoading(true);
       try {
-        await window.aistudio.openSelectKey();
+        await aistudio.openSelectKey();
         // Assume key selection was successful as per guidelines, proceed to app.
         // Race condition: hasSelectedApiKey may not immediately return true.
         onApiKeySelected();

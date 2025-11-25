@@ -68,8 +68,8 @@ const App: React.FC = () => {
   }, [activeSection]);
 
   const checkApiKey = async () => {
-    if (window.aistudio) {
-      const hasKey = await window.aistudio.hasSelectedApiKey();
+    if ((window as any).aistudio) {
+      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
       setHasApiKey(hasKey);
     } else {
       // Fallback for environment without aistudio wrapper, assuming process.env is injected
@@ -166,7 +166,7 @@ const App: React.FC = () => {
     if (!activeProject) return;
 
     if (!hasApiKey) {
-      if (window.aistudio) {
+      if ((window as any).aistudio) {
         setIsApiKeySelectionOpen(true);
         return;
       }
@@ -239,7 +239,7 @@ const App: React.FC = () => {
       if (!activeProject) return;
 
       if (!hasApiKey) {
-        if (window.aistudio) {
+        if ((window as any).aistudio) {
           setIsApiKeySelectionOpen(true);
           return;
         }
