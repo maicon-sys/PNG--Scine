@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { HardDrive, Check, Loader2, FolderPlus } from 'lucide-react';
 
@@ -57,7 +58,7 @@ export const GoogleDriveIntegration: React.FC<GoogleDriveIntegrationProps> = ({ 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-8 relative overflow-hidden">
         
         {/* Decorative Background */}
