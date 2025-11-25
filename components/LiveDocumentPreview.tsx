@@ -30,7 +30,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
   }, []);
 
   // FIX: A ordenação agora respeita a ordem exata vinda do editor.
-  // A prop 'sections' já está na ordem correta, então apenas filtramos.
+  // A prop 'sections' já está na ordem correta, então apenas filtramos, sem reordenar.
   const sortedSections = sections
     .filter(s => s.status === SectionStatus.COMPLETED || s.status === SectionStatus.APPROVED);
 
