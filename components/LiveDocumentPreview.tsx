@@ -149,10 +149,20 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
             const assetId = src.replace('asset://', '');
             const asset = assets.find(a => a.id === assetId);
             if (asset) {
-                // Determine mime type based on asset type or data prefix if present (though stored as raw base64 usually)
-                // Assuming raw base64 stored in data:
-                const mimeType = asset.type === 'photo' ? 'image/jpeg' : 'image/png';
-                src = `data:${mimeType};base64,${asset.data}`;
+                // FIX: Detecta o MIME type a partir dos "magic numbers" dos dados Base64 para
+                // renderizar corretamente diferentes formatos de imagem (PNG, JPG, GIF, WebP).
+                let mimeType = 'image/png'; // Padrão
+                const base64Data = asset.data;
+                if (base64Data.startsWith('/9j/')) {
+                    mimeType = 'image/jpeg';
+                } else if (base64Data.startsWith('iVBORw0KGgo=')) {
+                    mimeType = 'image/png';
+                } else if (base64Data.startsWith('R0lGODlh')) {
+                    mimeType = 'image/gif';
+                } else if (base64Data.startsWith('UklGR')) {
+                    mimeType = 'image/webp';
+                }
+                src = `data:${mimeType};base64,${base64Data}`;
             }
         }
         return <img {...props} src={src} className="max-w-full h-auto my-6 rounded-lg shadow-md mx-auto print:block" />;
