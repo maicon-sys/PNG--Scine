@@ -35,8 +35,8 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     .filter(s => s.status === SectionStatus.COMPLETED || s.status === SectionStatus.APPROVED);
 
   const handleDownloadPdf = async () => {
-    const input = docRef.current;
-    if (!input) return;
+    const originalContent = docRef.current;
+    if (!originalContent) return;
     if (!window.jspdf || !window.html2canvas) {
       alert("As bibliotecas de geração de PDF ainda não carregaram. Aguarde um momento e tente novamente.");
       return;
@@ -44,11 +44,21 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     
     setIsGeneratingPdf(true);
     
+    // FIX: Create a temporary off-screen container to render the full content
+    // without scroll limitations, ensuring html2canvas captures everything.
+    const captureContainer = document.createElement('div');
+    captureContainer.style.position = 'absolute';
+    captureContainer.style.left = '-9999px'; // Move it off-screen
+    captureContainer.style.top = '0';
+    captureContainer.innerHTML = originalContent.innerHTML; // Copy the content
+    document.body.appendChild(captureContainer);
+
     try {
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF('p', 'mm', 'a4');
       
-      await pdf.html(input, {
+      // Capture the temporary container which is now fully rendered without scroll constraints
+      await pdf.html(captureContainer, {
         callback: function (doc) {
           // Add page numbers
           const pageCount = doc.internal.getNumberOfPages();
@@ -56,7 +66,6 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
             doc.setPage(i);
             doc.setFontSize(10);
             doc.setTextColor(100);
-            // Position at bottom center. A4 height is 297mm.
             doc.text(`Página ${i} de ${pageCount}`, doc.internal.pageSize.getWidth() / 2, 287, { align: 'center' });
           }
           doc.save(`${projectName.replace(/[\s/]/g, '_')}_Plano_de_Negocios.pdf`);
@@ -67,14 +76,10 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
           scale: 0.26,
           useCORS: true,
           logging: false,
-          windowWidth: input.scrollWidth,
-          windowHeight: input.scrollHeight,
-          // FIX: Use onclone to modify the cloned document before rendering,
-          // ensuring that wide tables with horizontal scroll are fully captured.
+          // We no longer need windowWidth/Height as the element itself has the full size
           onclone: (clonedDoc) => {
             const tableWrappers = clonedDoc.querySelectorAll('.pdf-table-wrapper');
             tableWrappers.forEach((wrapper: HTMLElement) => {
-                // Force the container to be visible and expand with the table content.
                 wrapper.style.overflow = 'visible';
             });
           },
@@ -86,6 +91,8 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
       console.error("PDF generation failed", e);
       alert("Falha ao gerar o PDF. Verifique o console para mais detalhes.");
     } finally {
+      // Clean up by removing the temporary container from the DOM
+      document.body.removeChild(captureContainer);
       setIsGeneratingPdf(false);
     }
   };
