@@ -98,13 +98,16 @@ export const StrategicMatrixViewer: React.FC<StrategicMatrixViewerProps> = ({ ma
   const [isOpen, setIsOpen] = useState(true);
 
   const downloadJson = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(matrix, null, 2));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", "MATRIZ_ESTRATEGICA_SCINE.json");
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
+    const jsonString = JSON.stringify(matrix, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = "MATRIZ_ESTRATEGICA_SCINE.json";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   if (!matrix || matrix.generatedAt === 0 || !matrix.swot) {
@@ -160,7 +163,7 @@ export const StrategicMatrixViewer: React.FC<StrategicMatrixViewerProps> = ({ ma
         <div 
             className="flex-grow cursor-pointer"
             onClick={() => setIsOpen(!isOpen)}
-        >
+            >
             <h2 className="text-md font-bold text-slate-800 flex items-center gap-2">
                 <TableProperties className="w-5 h-5 text-blue-600" /> 
                 Matriz Estratégica (Canvas + SWOT)
