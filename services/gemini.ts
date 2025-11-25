@@ -5,6 +5,15 @@ import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
 // FIX: Centraliza o nome do modelo de IA em uma constante para fácil manutenção.
 const AI_MODEL_NAME = "gemini-2.5-flash";
 
+// Helper to determine MIME type from base64 string
+const getBase64MimeType = (base64Data: string): string => {
+    if (base64Data.startsWith('/9j/')) return 'image/jpeg';
+    if (base64Data.startsWith('iVBORw0KGgo=')) return 'image/png';
+    if (base64Data.startsWith('R0lGODlh')) return 'image/gif';
+    if (base64Data.startsWith('UklGR')) return 'image/webp';
+    return 'image/png'; // Default
+};
+
 // Helper to clean JSON string safely (State Machine Parser with Candidate Search)
 const cleanJsonString = (text: string): string => {
     if (!text) return "{}";
@@ -147,7 +156,8 @@ const cleanJsonString = (text: string): string => {
 export const runDiagnosisStep = async (
     stepIndex: number,
     fullContext: string,
-    currentMatrix: StrategicMatrix
+    currentMatrix: StrategicMatrix,
+    assets: ProjectAsset[]
 ): Promise<DiagnosisStepResult> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -178,6 +188,7 @@ export const runDiagnosisStep = async (
         -   **Análise Avançada de Arquivos:** Extraia dados de tabelas, listas e informações implícitas. Limpe cabeçalhos/rodapés e normalize o texto. Identifique e consolide informações repetidas.
         -   **Busca Ativa (Metodologia SEBRAE):** Procure ativamente por: Público-alvo, necessidades/dores, concorrentes, proposta de valor, tendências, barreiras de entrada, canais, estrutura de receita, custos e riscos.
         -   **Busca Ativa (Critérios BRDE/FSA):** Procure ativamente por: Provas de inovação, aderência técnica, justificativa tecnológica, elementos de acessibilidade, riscos operacionais/financeiros, fragilidades técnicas, gargalos de execução e contradições entre arquivos.
+        -   **Análise de Imagens:** Analise as imagens fornecidas (se houver) para extrair informações sobre layouts, mapas, logos, ou outros dados visuais que complementem o contexto textual.
 
     2.  **AUDITORIA CRUZADA INTERNA:**
         -   Compare a coerência entre os blocos. Por exemplo: O público-alvo é compatível com os canais de marketing? Os custos são realistas frente às receitas projetadas? A equipe possui a expertise necessária para o escopo? A inovação alegada é comprovada nos documentos?
@@ -297,11 +308,18 @@ export const runDiagnosisStep = async (
         required: ["logs", "matrixUpdate"]
     };
 
+    // FIX: Inclui as imagens (assets) como `inlineData` para análise multimodal.
+    const imageParts = assets.map(asset => ({
+        inlineData: {
+            mimeType: getBase64MimeType(asset.data),
+            data: asset.data,
+        }
+    }));
 
     try {
         const result = await ai.models.generateContent({
             model,
-            contents: prompt,
+            contents: { parts: [{ text: prompt }, ...imageParts] },
             config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema }
         });
         
@@ -357,7 +375,8 @@ export const generateSectionContent = async (
     refinementInstructions: string = "",
     refinementContext: string = "",
     childSectionsContent: string = "",
-    strategicMatrix: StrategicMatrix | undefined
+    strategicMatrix: StrategicMatrix | undefined,
+    assets: ProjectAsset[]
 ): Promise<string> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -407,7 +426,7 @@ export const generateSectionContent = async (
     
     FONTES DE DADOS DISPONÍVEIS:
     1.  **MATRIZ ESTRATÉGICA (FONTE DA VERDADE):** ${matrixContext}
-    2.  **CONTEXTO GERAL DO PROJETO (Documentos, Anotações):** """${context}"""
+    2.  **CONTEXTO GERAL DO PROJETO (Documentos, Anotações, Imagens):** """${context}"""
     
     ${promptTask}
 
@@ -420,10 +439,18 @@ export const generateSectionContent = async (
     - Use as FONTES DE DADOS para embasar todos os seus argumentos. Não invente informações.
     `;
 
+    // FIX: Inclui as imagens (assets) como `inlineData` para análise multimodal.
+    const imageParts = assets.map(asset => ({
+        inlineData: {
+            mimeType: getBase64MimeType(asset.data),
+            data: asset.data,
+        }
+    }));
+
     try {
         const result = await ai.models.generateContent({
             model,
-            contents: prompt,
+            contents: { parts: [{ text: prompt }, ...imageParts] },
             config: { 
                 maxOutputTokens: 8192, 
                 // System instruction to prevent hallucination of document structure

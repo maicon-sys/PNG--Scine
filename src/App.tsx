@@ -221,6 +221,7 @@ const App: React.FC = () => {
     setDiagnosisStep(0);
 
     const context = getFullContext();
+    const assets = activeProject.currentData.contextState.assets;
     let currentMatrix = { ...activeProject.currentData.contextState.strategicMatrix } || { ...DEFAULT_STRATEGIC_MATRIX };
 
     try {
@@ -229,7 +230,7 @@ const App: React.FC = () => {
             const stepName = DIAGNOSIS_STEPS[i].name;
             setDiagnosisLogs(prev => [...prev, `Iniciando etapa ${i + 1}: ${stepName}...`]);
 
-            const result = await runDiagnosisStep(i, context, currentMatrix);
+            const result = await runDiagnosisStep(i, context, currentMatrix, assets);
             
             if (result.logs && result.logs.length > 0) {
                 setDiagnosisLogs(prev => [...prev, ...result.logs]);
@@ -301,6 +302,7 @@ const App: React.FC = () => {
         const context = getFullContext({ maxLength: 100000 });
         const goal = activeProject.currentData.contextState.businessGoal;
         const methodology = activeProject.currentData.contextState.methodology;
+        const assets = activeProject.currentData.contextState.assets;
 
         const allSections = activeProject.currentData.sections;
         const currentIndex = allSections.findIndex(s => s.id === section.id);
@@ -320,7 +322,8 @@ const App: React.FC = () => {
             previousSections, 
             section.content, 
             '', '', '', 
-            matrix
+            matrix,
+            assets
         );
         updateSection(section.id, { content: newContent, status: SectionStatus.DRAFT });
         if (selectedSectionId === section.id) {
