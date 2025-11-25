@@ -20,20 +20,42 @@ export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate 
   };
 
   const readPdfText = async (file: File): Promise<string> => {
-    if (!window.pdfjsLib) {
-      alert("A biblioteca de leitura de PDF não carregou. Por favor, recarregue a página.");
-      throw new Error("PDF library not loaded");
+    // Wait for library to load if network is slow
+    const waitForLib = async () => {
+        let retries = 0;
+        while (!window.pdfjsLib && retries < 50) { // Wait up to 5 seconds
+            await new Promise(r => setTimeout(r, 100));
+            retries++;
+        }
+        if (!window.pdfjsLib) throw new Error("Biblioteca PDF não carregou. Verifique sua conexão.");
+    };
+
+    try {
+        await waitForLib();
+        const pdfjs = window.pdfjsLib;
+        
+        // Safety check for worker configuration
+        if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+            pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+        let fullText = "";
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            // Basic extraction: join items with space. 
+            // Note: complex layouts might need better heuristics, but this suffices for context injection.
+            const pageText = textContent.items.map((item: any) => item.str).join(" ");
+            fullText += `--- Página ${i} ---\n${pageText}\n\n`;
+        }
+        return fullText;
+    } catch (e) {
+        console.error("Erro ao ler PDF:", e);
+        throw new Error("Falha na leitura do PDF. A biblioteca pode não ter carregado ou o arquivo está corrompido.");
     }
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    let fullText = "";
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items.map((item: any) => item.str).join(" ");
-      fullText += `--- Página ${i} ---\n${pageText}\n\n`;
-    }
-    return fullText;
   };
 
   const convertImageToBase64 = (file: File): Promise<string> => {
