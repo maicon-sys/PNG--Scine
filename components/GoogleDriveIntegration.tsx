@@ -16,7 +16,8 @@ export const GoogleDriveIntegration: React.FC<GoogleDriveIntegrationProps> = ({ 
   const [selectedFolder, setSelectedFolder] = useState(`Projetos SCine`);
 
   // Ref to track active timeouts
-  const timersRef = useRef<NodeJS.Timeout[]>([]);
+  // FIX: Replaced NodeJS.Timeout with ReturnType<typeof setTimeout> to use the correct browser-compatible type.
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Cleanup on unmount
   useEffect(() => {

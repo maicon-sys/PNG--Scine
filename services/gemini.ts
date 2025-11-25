@@ -2,8 +2,11 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, StrategicMatrix, AnalysisGap, BusinessGoal, DiagnosisStepResult, CanvasBlock, SwotBlock, MatrixItem, SectionStatus } from "../types";
 import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
 
-// FIX: Centraliza o nome do modelo de IA em uma constante para fácil manutenção.
-const AI_MODEL_NAME = "gemini-2.5-flash";
+// FIX: Define modelos de IA distintos para tarefas diferentes, otimizando custo e qualidade.
+// 'flash' é usado para o diagnóstico rápido e estruturado.
+const AI_DIAGNOSIS_MODEL = "gemini-2.5-flash";
+// 'pro' é usado para a geração de conteúdo textual, que exige maior profundidade e análise.
+const AI_WRITER_MODEL = "gemini-3-pro-preview";
 
 // Helper to determine MIME type from base64 string
 const getBase64MimeType = (base64Data: string): string => {
@@ -161,7 +164,7 @@ export const runDiagnosisStep = async (
 ): Promise<DiagnosisStepResult> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = AI_MODEL_NAME;
+    const model = AI_DIAGNOSIS_MODEL;
     const step = DIAGNOSIS_STEPS[stepIndex];
 
     const prompt = `
@@ -380,7 +383,7 @@ export const generateSectionContent = async (
 ): Promise<string> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = AI_MODEL_NAME;
+    const model = AI_WRITER_MODEL;
 
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz estratégica não disponível.";
 
@@ -453,8 +456,8 @@ export const generateSectionContent = async (
             contents: { parts: [{ text: prompt }, ...imageParts] },
             config: { 
                 maxOutputTokens: 8192, 
-                // System instruction to prevent hallucination of document structure
-                systemInstruction: "Você é um redator técnico focado e obediente. Você deve escrever APENAS o texto da seção solicitada. É ESTRITAMENTE PROIBIDO criar novos capítulos, numerações de tópicos (como 10.8, 14.5) ou fugir do tema específico da seção. Se você inventar tópicos que não existem na solicitação, o projeto será reprovado."
+                // System instruction to produce detailed, high-quality analytical content.
+                systemInstruction: "Você é um consultor de negócios sênior e redator especialista. Sua tarefa é elaborar textos detalhados, analíticos e aprofundados para um plano de negócios profissional, seguindo rigorosamente a metodologia SEBRAE e os critérios do BRDE. É crucial que você NÃO invente novas seções ou numerações (como 10.8, 14.5). Sua resposta deve se limitar estritamente ao conteúdo da seção solicitada, mas com a máxima profundidade e qualidade analítica possível, utilizando os dados fornecidos."
             }
         });
         return result.text || "Erro: A IA não retornou conteúdo.";
@@ -475,7 +478,7 @@ export const fixSectionContentWithSearch = async (
 ): Promise<{ newContent: string; sources: { url: string; title: string }[] }> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = AI_MODEL_NAME; 
+    const model = AI_WRITER_MODEL; 
 
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz estratégica não disponível.";
 
@@ -543,7 +546,7 @@ export const generateFinancialData = async (
 ): Promise<{ analysis: string, data: FinancialYear[] }> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = AI_MODEL_NAME;
+    const model = AI_WRITER_MODEL;
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz de dados não disponível.";
     const prompt = `
     ATUE COMO: Analista Financeiro Sênior do BRDE, avaliando o projeto SCine.
@@ -605,7 +608,7 @@ export const validateCompletedSections = async (
 ): Promise<{ sectionId: string; isValid: boolean; feedback: string }[]> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = AI_MODEL_NAME;
+    const model = AI_WRITER_MODEL;
 
     // FIX: A filtragem agora inclui seções com status REVIEW_ALERT para revalidação.
     const sectionsToValidate = sections

@@ -46,6 +46,7 @@ const App: React.FC = () => {
   // Editor State
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [editedContent, setEditedContent] = useState('');
+  const [refinementInput, setRefinementInput] = useState('');
 
   // Computed Active Project
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
@@ -372,6 +373,61 @@ const App: React.FC = () => {
       }
   };
 
+  const handleRefineSection = async () => {
+    if (!activeProject || !activeSection || !refinementInput.trim()) return;
+
+    if (!hasApiKey) {
+      if (window.aistudio) {
+        setIsApiKeySelectionOpen(true);
+        return;
+      }
+      alert("API Key necessária para refinar o conteúdo.");
+      return;
+    }
+
+    setIsGenerating(true);
+    updateSection(activeSection.id, { status: SectionStatus.GENERATING });
+
+    try {
+      const context = getFullContext({ maxLength: 100000 });
+      const goal = activeProject.currentData.contextState.businessGoal;
+      const methodology = activeProject.currentData.contextState.methodology;
+      const assets = activeProject.currentData.contextState.assets;
+      const matrix = activeProject.currentData.contextState.strategicMatrix;
+
+      const newContent = await generateSectionContent(
+        activeSection.title,
+        activeSection.description,
+        methodology,
+        context,
+        goal,
+        '', 
+        '', 
+        activeSection.content,
+        refinementInput,
+        '',
+        '',
+        matrix,
+        assets
+      );
+
+      updateSection(activeSection.id, {
+        content: newContent,
+        status: SectionStatus.DRAFT,
+        lastRefinement: refinementInput,
+      });
+      setEditedContent(newContent);
+      setRefinementInput('');
+    } catch (e) {
+      console.error("Erro ao refinar seção:", e);
+      alert(`Ocorreu um erro ao refinar o conteúdo. Por favor, tente novamente.`);
+      updateSection(activeSection.id, { status: SectionStatus.DRAFT });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+
   const handleSaveContent = () => {
     if (selectedSectionId && editedContent !== activeSection?.content) {
       updateSection(selectedSectionId, { content: editedContent });
@@ -465,7 +521,8 @@ const App: React.FC = () => {
                 disabled={!activeSection || isGenerating}
                 className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium shadow-sm transition-all"
                >
-                 <Sparkles className="w-4 h-4" /> Gerar com IA
+                 <Sparkles className="w-4 h-4" /> 
+                 {activeSection?.content ? 'Regerar do Zero' : 'Gerar com IA'}
                </button>
              )}
              <span className="text-gray-300">|</span>
@@ -504,6 +561,35 @@ const App: React.FC = () => {
                    </div>
                  )}
                </div>
+
+                {activeSection.content && (
+                 <div className="p-4 border-b border-gray-200 bg-gray-50">
+                   <div className="flex items-center gap-3">
+                     <input
+                       type="text"
+                       value={refinementInput}
+                       onChange={(e) => setRefinementInput(e.target.value)}
+                       onKeyDown={(e) => e.key === 'Enter' && handleRefineSection()}
+                       disabled={isGenerating}
+                       className="flex-grow w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-shadow"
+                       placeholder="Peça para a IA refinar este texto..."
+                     />
+                     <button
+                       onClick={handleRefineSection}
+                       disabled={isGenerating || !refinementInput.trim()}
+                       className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium shadow-sm transition-all disabled:bg-purple-300 disabled:cursor-not-allowed"
+                       title="Refinar com base na instrução"
+                     >
+                       <Sparkles className="w-4 h-4" />
+                       <span>Refinar</span>
+                     </button>
+                   </div>
+                   {activeSection.lastRefinement && (
+                      <p className="text-xs text-gray-500 mt-2">Último refinamento: "<em>{activeSection.lastRefinement}</em>"</p>
+                   )}
+                 </div>
+               )}
+
                <div className="flex-1 p-0 relative">
                  <textarea
                    value={editedContent}
@@ -512,7 +598,6 @@ const App: React.FC = () => {
                    className="w-full h-full p-6 resize-none focus:outline-none text-gray-800 leading-relaxed"
                    placeholder="O conteúdo desta seção aparecerá aqui..."
                  />
-                 {/* Optional: Add a preview toggle or split view if needed */}
                </div>
             </div>
           ) : (
