@@ -4,22 +4,23 @@ import {
   ChevronRight, ChevronDown, Edit3, Save, Wand2,
   Lock, RotateCcw, ArrowRightCircle, RefreshCw, Paperclip, TableProperties,
   LogOut, ArrowLeft, Cloud, CloudLightning, Stethoscope,
-  History, AlertTriangle, Check, ShieldCheck, FileCode
+  History, AlertTriangle, Check, ShieldCheck, FileCode,
+  ChevronsLeft, ChevronsRight, X, ImageIcon, Award, Info
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { produce } from 'immer';
 
-import { PlanSection, AppContextState, SectionStatus, SectionType, FinancialYear, BusinessGoal, ProjectAsset, DiagnosisResponse, UploadedFile, User, Project, ProjectVersion, AnalysisGap, StrategicMatrix, DiagnosisStepResult } from './types';
-import { INITIAL_SECTIONS, DEFAULT_METHODOLOGY, IMAGE_PROMPTS, DIAGNOSIS_STEPS, DEFAULT_STRATEGIC_MATRIX } from './constants';
-import { generateSectionContent, generateFinancialData, runDiagnosisStep, generateProjectImage, validateCompletedSections } from './services/gemini';
-import { ContextManager } from './components/ContextManager';
-import { FinancialChart } from './components/FinancialChart';
-import { StrategicMatrixViewer } from './components/StrategicMatrixViewer';
-import { AuthScreen } from './components/AuthScreen';
-import { Dashboard } from './components/Dashboard';
-import { LiveDocumentPreview } from './components/LiveDocumentPreview';
-import { GoogleDriveIntegration } from './components/GoogleDriveIntegration';
+import { PlanSection, AppContextState, SectionStatus, SectionType, FinancialYear, BusinessGoal, ProjectAsset, DiagnosisResponse, UploadedFile, User, Project, ProjectVersion, AnalysisGap, StrategicMatrix, DiagnosisStepResult, WebSource } from '../types';
+import { INITIAL_SECTIONS, DEFAULT_METHODOLOGY, DIAGNOSIS_STEPS, DEFAULT_STRATEGIC_MATRIX } from '../constants';
+import { generateSectionContent, generateFinancialData, runDiagnosisStep, generateProjectImage, validateCompletedSections, fixSectionContentWithSearch } from '../services/gemini';
+import { ContextManager } from '../components/ContextManager';
+import { FinancialChart } from '../components/FinancialChart';
+import { StrategicMatrixViewer } from '../components/StrategicMatrixViewer';
+import { AuthScreen } from '../components/AuthScreen';
+import { Dashboard } from '../components/Dashboard';
+import { LiveDocumentPreview } from '../components/LiveDocumentPreview';
+import { GoogleDriveIntegration } from '../components/GoogleDriveIntegration';
 
 
 const STORAGE_KEY_PROJECTS = 'scine_saas_projects';
@@ -29,6 +30,8 @@ type ViewState = 'auth' | 'dashboard' | 'editor' | 'preview';
 
 const StatusIcon = ({ status }: { status: SectionStatus }) => {
   switch (status) {
+    case SectionStatus.APPROVED:
+      return <Award className="w-4 h-4 text-indigo-500" />;
     case SectionStatus.COMPLETED:
       return <CheckCircle2 className="w-4 h-4 text-green-500" />;
     case SectionStatus.DRAFT:
@@ -59,6 +62,10 @@ const App: React.FC = () => {
   const [refinementInput, setRefinementInput] = useState('');
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [driveSyncInfo, setDriveSyncInfo] = useState<{ folder: string, fileId: string } | null>(null);
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
+  const [isMatrixModalOpen, setIsMatrixModalOpen] = useState(false);
+
 
   // New Diagnosis State
   const [isDiagnosisRunning, setIsDiagnosisRunning] = useState(false);
@@ -68,6 +75,7 @@ const App: React.FC = () => {
   
   const [isValidationLoading, setIsValidationLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
   // Edit Mode State
   const [isEditing, setIsEditing] = useState(false);
@@ -98,8 +106,8 @@ const App: React.FC = () => {
     const currentSection = activeProject.currentData.sections.find(s => s.id === sectionId);
     let updatedFiles = activeProject.currentData.contextState.uploadedFiles;
 
-    // If a completed section is being modified (e.g., edited), remove its generated context file.
-    if (currentSection && currentSection.status === SectionStatus.COMPLETED && updates.status && updates.status !== SectionStatus.COMPLETED) {
+    // If a completed/approved section is being modified, remove its generated context file.
+    if (currentSection && (currentSection.status === SectionStatus.COMPLETED || currentSection.status === SectionStatus.APPROVED) && updates.status && (updates.status !== SectionStatus.COMPLETED && updates.status !== SectionStatus.APPROVED)) {
         updatedFiles = updatedFiles.filter(f => f.sourceSectionId !== sectionId);
     }
 
@@ -182,6 +190,7 @@ const App: React.FC = () => {
             uploadedFiles: [], 
             assets: [],
             strategicMatrix: DEFAULT_STRATEGIC_MATRIX,
+            webSources: [],
         },
         diagnosisHistory: [],
       },
@@ -209,11 +218,15 @@ const App: React.FC = () => {
         ? contextState.uploadedFiles.filter(f => f.isGenerated && f.type === 'text' && f.content)
         : [];
 
-    const truthSourceContext = completedSectionsContent.length > 0
-        ? `\n\n--- FONTES DA VERDADE (SEÇÕES CONCLUÍDAS E APROVADAS PELO USUÁRIO) ---\n${completedSectionsContent.map(f => `CONTEÚDO DE: ${f.name.replace('[CONCLUÍDO] ', '')}\n${f.content}`).join('\n\n')}`
+    const webSourcesContent = Array.isArray(contextState.webSources) && contextState.webSources.length > 0
+        ? `\n\n--- FONTES DA WEB ENCONTRADAS PELA IA ---\n${contextState.webSources.map(s => `FONTE: ${s.title}\nURL: ${s.url}`).join('\n')}`
         : "";
 
-    return `OBJETIVO: ${contextState.businessGoal}\nMETODOLOGIA: ${contextState.methodology}\nANOTAÇÕES: ${contextState.rawContext}\nARQUIVOS DO USUÁRIO: ${userUploadedFiles.map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n')}${truthSourceContext}`;
+    const truthSourceContext = completedSectionsContent.length > 0
+        ? `\n\n--- FONTES DA VERDADE (SEÇÕES CONCLUÍDAS E APROVADAS PELO USUÁRIO) ---\n${completedSectionsContent.map(f => `CONTEÚDO DE: ${f.name.replace('[CONCLUÍDO] ', '').replace('[APROVADO] ', '')}\n${f.content}`).join('\n\n')}`
+        : "";
+
+    return `OBJETIVO: ${contextState.businessGoal}\nMETODOLOGIA: ${contextState.methodology}\nANOTAÇÕES: ${contextState.rawContext}\nARQUIVOS DO USUÁRIO: ${userUploadedFiles.map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n')}${webSourcesContent}${truthSourceContext}`;
   }, [activeProject]);
   
  const handleRunDiagnosis = useCallback(async () => {
@@ -264,31 +277,50 @@ const App: React.FC = () => {
         
         const stepResult = await runDiagnosisStep(i, getFullContext(), currentMatrix);
         
-        // FIX: Safeguard against missing logs property
-        setDiagnosisLogs(prev => [...prev, ...(stepResult.logs || [])]);
+        if (Array.isArray(stepResult.logs)) {
+            const sanitizedLogs = stepResult.logs.map(log => 
+                typeof log === 'string' ? log : `[LOG INVÁLIDO]: ${JSON.stringify(log)}`
+            );
+            setDiagnosisLogs(prev => [...prev, ...sanitizedLogs]);
+        }
         
-        // Deep merge matrix updates
         if (stepResult.matrixUpdate) {
             currentMatrix = produce(currentMatrix, draft => {
-                // This is a simplified merge, a deep merge utility would be more robust
-                 Object.assign(draft, stepResult.matrixUpdate);
+                for (const key in stepResult.matrixUpdate) {
+                    const typedKey = key as keyof StrategicMatrix;
+                    const updateValue = (stepResult.matrixUpdate as any)[typedKey];
+
+                    if (!updateValue) continue;
+
+                    if (typedKey === 'swot' && typeof updateValue === 'object') {
+                        draft.swot = { ...draft.swot, ...updateValue };
+                    } else if (typedKey !== 'generatedAt') {
+                        const draftBlock = (draft as any)[typedKey];
+                        if (draftBlock && typeof draftBlock === 'object' && typeof updateValue === 'object') {
+                            (draft as any)[typedKey] = { ...draftBlock, ...updateValue };
+                        } else {
+                            (draft as any)[typedKey] = updateValue;
+                        }
+                    }
+                }
             });
             setProjectData(activeProject.id, { 
                 contextState: { ...activeProject.currentData.contextState, strategicMatrix: currentMatrix }
             });
         }
         
-        // Handle final step
-        if (i === DIAGNOSIS_STEPS.length - 1 && stepResult.finalDiagnosis) {
+        
+        if (i === DIAGNOSIS_STEPS.length - 1 && stepResult.finalDiagnosis && typeof stepResult.finalDiagnosis === 'object') {
              const timestamp = Date.now();
-             // FIX: Refactored gap mapping to be more robust against unexpected API response types.
              const gapsFromApi = stepResult.finalDiagnosis?.gaps;
              let finalGaps: AnalysisGap[] = [];
+             
              if (Array.isArray(gapsFromApi)) {
-// FIX: Removed 'as any[]' type assertion for improved type safety.
-// This prevents malformed data from the API from causing runtime errors later when the `gaps` array is processed.
-                finalGaps = gapsFromApi.map(g => ({
+                finalGaps = gapsFromApi
+                .filter((g): g is Omit<AnalysisGap, 'createdAt' | 'updatedAt' | 'resolvedAt' | 'status' | 'resolutionScore'> => !!g && typeof g === 'object')
+                .map((g) => ({
                     ...g,
+                    id: g.id || `gap_${timestamp}_${Math.random()}`,
                     status: 'OPEN',
                     resolutionScore: 0,
                     createdAt: timestamp,
@@ -299,7 +331,7 @@ const App: React.FC = () => {
             const finalDiagnosis: DiagnosisResponse = {
                 timestamp,
                 projectSummary: "Diagnóstico completo de 10 etapas concluído.",
-                overallReadiness: stepResult.finalDiagnosis.overallReadiness,
+                overallReadiness: stepResult.finalDiagnosis.overallReadiness || 0,
                 gaps: finalGaps,
                 strategicPaths: [],
                 suggestedSections: []
@@ -309,7 +341,7 @@ const App: React.FC = () => {
             });
         }
 
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise(resolve => setTimeout(resolve, 2500));
     }
 
     setDiagnosisProgress(100);
@@ -320,12 +352,12 @@ const App: React.FC = () => {
     const handleValidateProject = async () => {
         if (!activeProject) return;
 
-        const completedSections = activeProject.currentData.sections
+        const sectionsToValidate = activeProject.currentData.sections
             .filter(s => s.status === SectionStatus.COMPLETED)
             .map(s => ({ id: s.id, title: s.title, content: s.content }));
 
-        if (completedSections.length === 0) {
-            alert("Nenhuma seção foi marcada como 'Concluída' para ser validada.");
+        if (sectionsToValidate.length === 0) {
+            alert("Nenhuma seção marcada como 'Concluída' para ser validada. Seções já aprovadas não são revalidadas.");
             return;
         }
 
@@ -333,7 +365,7 @@ const App: React.FC = () => {
         try {
             const { contextState } = activeProject.currentData;
             const validationResults = await validateCompletedSections(
-                completedSections,
+                sectionsToValidate,
                 contextState.strategicMatrix!,
                 contextState.methodology,
                 contextState.businessGoal
@@ -347,11 +379,17 @@ const App: React.FC = () => {
                         status: SectionStatus.REVIEW_ALERT,
                         validationFeedback: result.feedback
                     });
+                } else {
+                    updateSection(result.sectionId, {
+                        validationFeedback: "Auditoria da IA concluída. O conteúdo está alinhado com as métricas e a Matriz Estratégica."
+                    });
                 }
             });
 
             if (allValid) {
-                alert("Validação concluída! Todas as seções estão alinhadas com os objetivos e dados do projeto.");
+                alert("Validação concluída! Todas as seções estão alinhadas. Agora você pode 'Aprovar' cada uma para finalizá-las.");
+            } else {
+                alert("Validação encontrou problemas. Verifique as seções marcadas com um alerta de revisão.");
             }
 
         } catch (e) {
@@ -380,6 +418,56 @@ const App: React.FC = () => {
       } finally {
         setIsGenerating(false);
       }
+  };
+
+  const handleFixSection = async (section: PlanSection) => {
+    if (!activeProject || !section.validationFeedback) return;
+    setIsGenerating(true);
+    updateSection(section.id, { status: SectionStatus.GENERATING });
+    try {
+      const context = getFullContext();
+      const { businessGoal, methodology, strategicMatrix } = activeProject.currentData.contextState;
+      
+      const { newContent, sources } = await fixSectionContentWithSearch(
+        section.title,
+        section.validationFeedback,
+        section.content,
+        methodology,
+        context,
+        businessGoal,
+        strategicMatrix
+      );
+
+      updateSection(section.id, { 
+        content: newContent, 
+        status: SectionStatus.DRAFT, 
+        validationFeedback: ''
+      });
+      setEditedContent(newContent);
+      
+      const newWebSources: WebSource[] = sources.map(source => ({
+        ...source,
+        fetchedAt: Date.now(),
+        sourceSectionId: section.id,
+      }));
+
+      const currentSources = activeProject.currentData.contextState.webSources || [];
+      const filteredOldSources = currentSources.filter(s => s.sourceSectionId !== section.id);
+
+      setProjectData(activeProject.id, {
+          contextState: {
+              ...activeProject.currentData.contextState,
+              webSources: [...filteredOldSources, ...newWebSources],
+          }
+      });
+
+    } catch (e) {
+      console.error(e);
+      updateSection(section.id, { status: SectionStatus.REVIEW_ALERT });
+      alert(`Erro ao tentar corrigir a seção "${section.title}" com a IA.`);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleRefineSection = async (section: PlanSection) => {
@@ -420,6 +508,43 @@ const App: React.FC = () => {
     }
   };
 
+  const handleGenerateImageForSection = async (section: PlanSection) => {
+    if (!activeProject) return;
+
+    const confirmation = confirm(`Deseja gerar uma imagem ilustrativa para a seção "${section.title}"? Isso consumirá recursos da IA.`);
+    if (!confirmation) return;
+    
+    setIsGeneratingImage(true);
+    try {
+        const imagePrompt = `Crie uma imagem profissional e conceitual para uma seção de um plano de negócios sobre "${section.title}". O conceito é: ${section.description}. O estilo deve ser fotorealista, corporativo, com iluminação cinematográfica e tons de azul e laranja, representando inovação e seriedade.`;
+        
+        const base64Data = await generateProjectImage(imagePrompt);
+        
+        const newAsset: ProjectAsset = {
+            id: `asset_${Date.now()}`,
+            type: 'photo',
+            data: base64Data,
+            description: `Imagem para: ${section.title}`
+        };
+
+        const newContextState = produce(activeProject.currentData.contextState, draft => {
+            if (!draft.assets) draft.assets = [];
+            draft.assets.push(newAsset);
+        });
+
+        setProjectData(activeProject.id, { contextState: newContextState });
+        
+        alert(`Imagem para "${section.title}" gerada com sucesso e adicionada aos Ativos do Projeto na barra lateral direita!`);
+
+    } catch (error) {
+        console.error("Image generation failed:", error);
+        alert("Falha ao gerar a imagem. Verifique o console para mais detalhes.");
+    } finally {
+        setIsGeneratingImage(false);
+    }
+  };
+
+
   const handleSaveEdit = () => {
     if (!activeSection) return;
     updateSection(activeSection.id, { content: editedContent, status: SectionStatus.DRAFT, validationFeedback: '' });
@@ -434,28 +559,88 @@ const App: React.FC = () => {
 
     const handleMarkAsCompleted = (sectionId: string) => {
         if (!activeProject) return;
-        const section = activeProject.currentData.sections.find(s => s.id === sectionId);
-        if (!section) return;
+        updateSection(sectionId, { status: SectionStatus.COMPLETED, validationFeedback: '' });
+    };
 
-        const generatedFile: UploadedFile = {
-            name: `[CONCLUÍDO] ${section.title}.txt`,
-            content: section.content,
+    const handleApproveSection = useCallback(async (sectionId: string) => {
+        if (!activeProject) return;
+
+        const sections = activeProject.currentData.sections;
+        const currentIndex = sections.findIndex(s => s.id === sectionId);
+        if (currentIndex === -1) return;
+
+        const approvedSection = sections[currentIndex];
+        const nextSectionToGenerate = sections.find((s, index) => 
+            index > currentIndex && !s.isLocked && s.status === SectionStatus.PENDING
+        );
+
+        const approvedFile: UploadedFile = {
+            name: `[APROVADO] ${approvedSection.title}.txt`,
+            content: approvedSection.content,
             type: 'text',
             isGenerated: true,
-            sourceSectionId: section.id,
+            sourceSectionId: sectionId,
         };
-
-        const newFiles = [
-            // Remove any old version of this generated file before adding the new one
-            ...activeProject.currentData.contextState.uploadedFiles.filter(f => f.sourceSectionId !== section.id),
-            generatedFile
+        const newUploadedFiles = [
+            ...activeProject.currentData.contextState.uploadedFiles.filter(f => f.sourceSectionId !== sectionId),
+            approvedFile
         ];
 
-        // First, update the section status itself
-        updateSection(section.id, { status: SectionStatus.COMPLETED, validationFeedback: '' });
-        // Then, update the project data with the new context file
-        setProjectData(activeProject.id, { contextState: { ...activeProject.currentData.contextState, uploadedFiles: newFiles }});
-    };
+        const newSections = sections.map(s => {
+            if (s.id === sectionId) return { ...s, status: SectionStatus.APPROVED };
+            if (nextSectionToGenerate && s.id === nextSectionToGenerate.id) {
+                return { ...s, status: SectionStatus.GENERATING, validationFeedback: '' };
+            }
+            return s;
+        });
+
+        const newContextState = {
+          ...activeProject.currentData.contextState,
+          uploadedFiles: newUploadedFiles
+        };
+
+        setProjectData(activeProject.id, { sections: newSections, contextState: newContextState });
+        
+        if (nextSectionToGenerate) {
+            setActiveSectionId(nextSectionToGenerate.id);
+            setIsGenerating(true);
+            
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            try {
+                const tempContextState = newContextState;
+                const userUploadedFiles = tempContextState.uploadedFiles.filter(f => !f.isGenerated && f.type === 'text' && f.content && !f.isRestored);
+                const truthSourceContent = tempContextState.uploadedFiles.filter(f => f.isGenerated && f.type === 'text' && f.content);
+                const webSourcesContent = Array.isArray(tempContextState.webSources)
+                    ? `\n\n--- FONTES DA VERDADE (FONTES DA WEB ENCONTRADAS PELA IA) ---\n${tempContextState.webSources.map(s => `FONTE: ${s.title}\nURL: ${s.url}`).join('\n')}`
+                    : "";
+                const truthSourceContext = truthSourceContent.length > 0
+                    ? `\n\n--- FONTES DA VERDADE (SEÇÕES CONCLUÍDAS E APROVADAS PELO USUÁRIO) ---\n${truthSourceContent.map(f => `CONTEÚDO DE: ${f.name.replace('[CONCLUÍDO] ', '').replace('[APROVADO] ', '')}\n${f.content}`).join('\n\n')}`
+                    : "";
+                const freshContext = `OBJETIVO: ${tempContextState.businessGoal}\nMETODOLOGIA: ${tempContextState.methodology}\nANOTAÇÕES: ${tempContextState.rawContext}\nARQUIVOS DO USUÁRIO: ${userUploadedFiles.map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n')}${webSourcesContent}${truthSourceContext}`;
+
+                const newContent = await generateSectionContent(
+                    nextSectionToGenerate.title, 
+                    nextSectionToGenerate.description, 
+                    tempContextState.methodology, 
+                    freshContext, 
+                    tempContextState.businessGoal, 
+                    '', '', '', '', '', '',
+                    tempContextState.strategicMatrix
+                );
+                
+                updateSection(nextSectionToGenerate.id, { content: newContent, status: SectionStatus.DRAFT });
+                setEditedContent(newContent);
+
+            } catch (e) {
+                console.error("Auto-generation failed:", e);
+                updateSection(nextSectionToGenerate.id, { status: SectionStatus.PENDING });
+                alert(`Erro ao gerar automaticamente o conteúdo para ${nextSectionToGenerate.title}`);
+            } finally {
+                setIsGenerating(false);
+            }
+        }
+    }, [activeProject, setProjectData, updateSection]);
 
   // --- RENDER ---
   if (currentView === 'auth' || !currentUser) return <AuthScreen onLogin={handleLogin} />;
@@ -474,13 +659,22 @@ const App: React.FC = () => {
   
   if (currentView === 'preview') return <LiveDocumentPreview projectName={activeProject.name} sections={activeProject.currentData.sections} onClose={() => setCurrentView('editor')} />;
 
-  const lastDiagnosis = activeProject.currentData.diagnosisHistory.slice(-1)[0];
-  // FIX: Ensure `lastDiagnosis.gaps` is an array before filtering to prevent runtime errors with `.map` later.
-  const gaps = lastDiagnosis?.gaps;
-  // FIX: Replaced filter with a type predicate to ensure `openGaps` is correctly typed as `AnalysisGap[]`, resolving a potential type inference issue where `.map` would not be found.
-  // FIX: Explicitly type `openGaps` as `AnalysisGap[]` to prevent TypeScript from inferring it as `unknown`.
-  // This resolves the error where `.map` cannot be called on `openGaps`.
-  const openGaps: AnalysisGap[] = Array.isArray(gaps) ? gaps.filter((g): g is AnalysisGap => !!(g && g.status === 'OPEN')) : [];
+  const lastDiagnosis = Array.isArray(activeProject.currentData.diagnosisHistory)
+    ? activeProject.currentData.diagnosisHistory.slice(-1)[0]
+    : undefined;
+  
+  const gaps = useMemo<AnalysisGap[]>(() => {
+    if (lastDiagnosis && typeof lastDiagnosis === 'object' && lastDiagnosis !== null) {
+      const potentialGaps = (lastDiagnosis as DiagnosisResponse).gaps;
+      if (Array.isArray(potentialGaps)) {
+        return potentialGaps.filter((g): g is AnalysisGap => !!g && typeof g === 'object');
+      }
+    }
+    return [];
+  }, [lastDiagnosis]);
+  
+  const openGaps: AnalysisGap[] = gaps.filter(g => g.status === 'OPEN');
+  
 
   const MarkdownComponents = {
     table: ({node, ...props}: any) => (
@@ -505,9 +699,54 @@ const App: React.FC = () => {
     strong: ({...props}) => <strong className="font-semibold text-slate-900" {...props} />,
     a: ({...props}) => <a className="text-blue-600 hover:underline" {...props} />,
   };
+
+    let mainActionButton;
+    if (activeSection) {
+        const isActionDisabled = isGenerating || isEditing || activeSection.status === SectionStatus.APPROVED;
+        if (activeSection.status === SectionStatus.REVIEW_ALERT) {
+            mainActionButton = (
+                <button onClick={() => handleFixSection(activeSection)} disabled={isActionDisabled} className="flex items-center gap-2 px-6 py-3 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors disabled:bg-slate-300 shadow-sm hover:shadow-md">
+                    {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
+                    Corrigir com IA + Web
+                </button>
+            );
+        } else {
+            mainActionButton = (
+                <button onClick={() => handleGenerateSection(activeSection)} disabled={isActionDisabled} className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-slate-300 shadow-sm hover:shadow-md">
+                    {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wand2 className="w-5 h-5" />}
+                    {activeSection.content ? 'Regerar com IA' : 'Gerar com IA'}
+                </button>
+            );
+        }
+    }
   
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-50 font-sans text-slate-900">
+        {isMatrixModalOpen && (
+            <div 
+              className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in" 
+              onClick={() => setIsMatrixModalOpen(false)}
+            >
+                <div 
+                  className="bg-slate-50 rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] p-6 flex flex-col" 
+                  onClick={e => e.stopPropagation()}
+                >
+                    <div className="flex justify-between items-center mb-4 border-b pb-4">
+                        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                            <TableProperties className="w-6 h-6 text-blue-600" />
+                            Matriz Estratégica Detalhada
+                        </h2>
+                        <button onClick={() => setIsMatrixModalOpen(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-800">
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto pr-2">
+                        <StrategicMatrixViewer matrix={activeProject.currentData.contextState.strategicMatrix!} isModalView={true} />
+                    </div>
+                </div>
+            </div>
+        )}
+
         {isDriveModalOpen && (
             <GoogleDriveIntegration 
                 projectName={activeProject.name} 
@@ -519,6 +758,7 @@ const App: React.FC = () => {
                 onCancel={() => setIsDriveModalOpen(false)}
             />
         )}
+
       {/* Header */}
       <header className="flex-shrink-0 bg-white h-16 border-b border-slate-200 flex items-center justify-between px-6 z-20">
         <div className="flex items-center gap-4">
@@ -551,50 +791,59 @@ const App: React.FC = () => {
       
       {/* Main Content */}
       <main className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Navigation */}
-        <aside className="w-1/4 max-w-sm flex-shrink-0 bg-white border-r border-slate-200 overflow-y-auto">
-           <div className="p-4 sticky top-0 bg-white z-10 border-b border-slate-200">
-                <h2 className="font-bold text-slate-800">Estrutura do Plano</h2>
-                <p className="text-xs text-slate-500 mt-1">Navegue pelos capítulos e seções do seu plano.</p>
-           </div>
-           <nav className="p-2">
-                {Object.entries(groupedSections).map(([chapter, sections]) => (
-                    <details key={chapter} open={expandedChapters.has(chapter)} className="mb-1">
-                        <summary 
-                            className="flex items-center justify-between p-2 rounded-md hover:bg-slate-100 cursor-pointer font-semibold text-sm"
-                            onClick={(e) => {
-                                e.preventDefault();
-                                setExpandedChapters(prev => {
-                                    const newSet = new Set(prev);
-                                    if (newSet.has(chapter)) newSet.delete(chapter);
-                                    else newSet.add(chapter);
-                                    return newSet;
-                                });
-                            }}
-                        >
-                            <span className="truncate pr-2">{chapter}</span>
-                            <ChevronDown className={`w-4 h-4 transition-transform ${expandedChapters.has(chapter) ? 'rotate-0' : '-rotate-90'}`} />
-                        </summary>
-                        <ul className="pl-4 pt-1 border-l-2 border-slate-200 ml-2">
-                            {sections.map(section => (
-                                <li key={section.id}>
-                                    <button 
-                                        onClick={() => setActiveSectionId(section.id)}
-                                        disabled={section.isLocked}
-                                        className={`w-full text-left flex items-center gap-3 p-2 my-1 rounded-md text-sm transition-colors ${
-                                            activeSectionId === section.id ? 'bg-blue-100 text-blue-800 font-medium' : 'hover:bg-slate-100 text-slate-600'
-                                        } ${section.isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                    >
-                                       <StatusIcon status={section.status} />
-                                       <span className="flex-1 truncate">{section.title}</span>
-                                       {section.isLocked && <Lock className="w-3 h-3 text-slate-400" />}
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                    </details>
-                ))}
-           </nav>
+        {/* Left Sidebar */}
+        <aside className={`relative flex-shrink-0 bg-white border-r border-slate-200 transition-all duration-300 ease-in-out ${isLeftSidebarOpen ? 'w-1/4 max-w-sm' : 'w-0'}`}>
+            <div className={`w-[25vw] max-w-sm h-full overflow-y-auto transition-opacity duration-100 ${isLeftSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                <div className="p-4 sticky top-0 bg-white z-10 border-b border-slate-200">
+                    <h2 className="font-bold text-slate-800">Estrutura do Plano</h2>
+                    <p className="text-xs text-slate-500 mt-1">Navegue pelos capítulos e seções do seu plano.</p>
+                </div>
+                <nav className="p-2">
+                        {Object.entries(groupedSections).map(([chapter, sections]) => (
+                            <details key={chapter} open={expandedChapters.has(chapter)} className="mb-1">
+                                <summary 
+                                    className="flex items-center justify-between p-2 rounded-md hover:bg-slate-100 cursor-pointer font-semibold text-sm"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        setExpandedChapters(prev => {
+                                            const newSet = new Set(prev);
+                                            if (newSet.has(chapter)) newSet.delete(chapter);
+                                            else newSet.add(chapter);
+                                            return newSet;
+                                        });
+                                    }}
+                                >
+                                    <span className="truncate pr-2">{chapter}</span>
+                                    <ChevronDown className={`w-4 h-4 transition-transform ${expandedChapters.has(chapter) ? 'rotate-0' : '-rotate-90'}`} />
+                                </summary>
+                                <ul className="pl-4 pt-1 border-l-2 border-slate-200 ml-2">
+                                    {sections.map(section => (
+                                        <li key={section.id}>
+                                            <button 
+                                                onClick={() => setActiveSectionId(section.id)}
+                                                disabled={section.isLocked}
+                                                className={`w-full text-left flex items-center gap-3 p-2 my-1 rounded-md text-sm transition-colors ${
+                                                    activeSectionId === section.id ? 'bg-blue-100 text-blue-800 font-medium' : 'hover:bg-slate-100 text-slate-600'
+                                                } ${section.isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                            >
+                                            <StatusIcon status={section.status} />
+                                            <span className="flex-1 truncate">{section.title}</span>
+                                            {section.isLocked && <Lock className="w-3 h-3 text-slate-400" />}
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </details>
+                        ))}
+                </nav>
+            </div>
+            <button
+                onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
+                className="absolute top-1/2 -right-3 -translate-y-1/2 z-30 bg-white p-1 rounded-full shadow-md border border-slate-300 hover:bg-slate-100"
+                title={isLeftSidebarOpen ? "Recolher" : "Expandir"}
+            >
+                {isLeftSidebarOpen ? <ChevronsLeft className="w-4 h-4 text-slate-600" /> : <ChevronsRight className="w-4 h-4 text-slate-600" />}
+            </button>
         </aside>
 
         {/* Center - Editor */}
@@ -607,12 +856,34 @@ const App: React.FC = () => {
                         <p className="text-slate-600 mt-2 text-md leading-relaxed border-l-4 border-blue-200 pl-4">{activeSection.description}</p>
                     </div>
 
-                    {activeSection.validationFeedback && (
+                    {activeSection.status === SectionStatus.COMPLETED && !activeSection.validationFeedback && (
+                        <div className="mb-4 p-4 bg-blue-50 border-l-4 border-blue-400 text-blue-800 rounded-r-lg">
+                            <div className="flex items-start">
+                                <Info className="w-5 h-5 mr-3 mt-1 shrink-0" />
+                                <div>
+                                    <h4 className="font-bold">Próximo Passo</h4>
+                                    <p className="text-sm mt-1">Esta seção está pronta para auditoria. Use o botão <strong>Validar Seções Concluídas</strong> na barra lateral direita para que a IA verifique a consistência e o alinhamento com as métricas do projeto.</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {activeSection.validationFeedback && activeSection.status === SectionStatus.REVIEW_ALERT && (
                         <div className="mb-4 p-4 bg-orange-50 border-l-4 border-orange-400 text-orange-800 rounded-r-lg">
                             <div className="flex items-start">
                                 <AlertTriangle className="w-5 h-5 mr-3 mt-1 shrink-0" />
                                 <div>
                                     <h4 className="font-bold">Alerta de Revisão da IA</h4>
+                                    <p className="text-sm mt-1">{activeSection.validationFeedback}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {activeSection.validationFeedback && (activeSection.status === SectionStatus.COMPLETED || activeSection.status === SectionStatus.APPROVED) && (
+                        <div className="mb-4 p-4 bg-green-50 border-l-4 border-green-400 text-green-800 rounded-r-lg">
+                            <div className="flex items-start">
+                                <CheckCircle2 className="w-5 h-5 mr-3 mt-1 shrink-0" />
+                                <div>
+                                    <h4 className="font-bold">Validado pela IA</h4>
                                     <p className="text-sm mt-1">{activeSection.validationFeedback}</p>
                                 </div>
                             </div>
@@ -627,7 +898,7 @@ const App: React.FC = () => {
                             </button>
                             {activeSection.content && (
                                 <div className="mt-6 bg-white p-6 rounded-lg border border-slate-200 prose max-w-none">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{activeSection.content}</ReactMarkdown>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{typeof activeSection.content === 'string' ? activeSection.content : JSON.stringify(activeSection.content)}</ReactMarkdown>
                                 </div>
                             )}
                             <FinancialChart data={activeSection.financialData || []} />
@@ -654,7 +925,7 @@ const App: React.FC = () => {
                                     <div className="bg-white p-6 rounded-lg border border-slate-200 min-h-[24rem] prose prose-slate max-w-none">
                                         {activeSection.content ? (
                                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                                {activeSection.content}
+                                                {typeof activeSection.content === 'string' ? activeSection.content : JSON.stringify(activeSection.content)}
                                             </ReactMarkdown>
                                         ) : (
                                             <div className="flex items-center justify-center h-full text-slate-400">
@@ -662,8 +933,17 @@ const App: React.FC = () => {
                                             </div>
                                         )}
                                     </div>
-                                    <div className="flex justify-end">
-                                        <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-semibold hover:bg-slate-200">
+                                    <div className="flex justify-end gap-2">
+                                        <button 
+                                            onClick={() => handleGenerateImageForSection(activeSection)} 
+                                            disabled={isGenerating || isGeneratingImage || isEditing || activeSection.status === SectionStatus.APPROVED}
+                                            className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-semibold hover:bg-slate-200 disabled:opacity-50"
+                                            title="Gerar uma imagem de capa conceitual para esta seção"
+                                        >
+                                            {isGeneratingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
+                                            Gerar Imagem
+                                        </button>
+                                        <button onClick={() => setIsEditing(true)} disabled={activeSection.status === SectionStatus.APPROVED} className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-semibold hover:bg-slate-200 disabled:opacity-50">
                                             <Edit3 className="w-4 h-4" /> Editar Manualmente
                                         </button>
                                     </div>
@@ -677,27 +957,41 @@ const App: React.FC = () => {
                                     onChange={(e) => setRefinementInput(e.target.value)}
                                     placeholder="Instruções para refinar (Ex: 'deixe mais formal', 'adicione um parágrafo sobre...') "
                                     className="flex-grow p-3 border border-slate-300 rounded-lg text-sm"
-                                    disabled={!activeSection.content || isGenerating || isEditing}
+                                    disabled={!activeSection.content || isGenerating || isEditing || activeSection.status === SectionStatus.APPROVED}
                                 />
-                                <button onClick={() => handleRefineSection(activeSection)} disabled={!activeSection.content || !refinementInput.trim() || isGenerating || isEditing} className="px-4 py-2 bg-slate-600 text-white rounded-lg font-semibold hover:bg-slate-700 transition-colors disabled:bg-slate-300 flex items-center gap-2">
+                                <button onClick={() => handleRefineSection(activeSection)} disabled={!activeSection.content || !refinementInput.trim() || isGenerating || isEditing || activeSection.status === SectionStatus.APPROVED} className="px-4 py-2 bg-slate-600 text-white rounded-lg font-semibold hover:bg-slate-700 transition-colors disabled:bg-slate-300 flex items-center gap-2">
                                     <RotateCcw className="w-4 h-4" />
                                     Refinar
                                 </button>
                             </div>
 
                             <div className="flex justify-between items-center pt-4">
-                               <button onClick={() => handleGenerateSection(activeSection)} disabled={isGenerating || isEditing} className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-slate-300 shadow-sm hover:shadow-md">
-                                    {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wand2 className="w-5 h-5" />}
-                                    {activeSection.content ? 'Regerar com IA' : 'Gerar com IA'}
-                                </button>
+                               {mainActionButton}
+                               {activeSection.status === SectionStatus.DRAFT && (
                                 <button 
                                   onClick={() => handleMarkAsCompleted(activeSection.id)} 
-                                  disabled={activeSection.status === SectionStatus.COMPLETED || !activeSection.content}
+                                  disabled={!activeSection.content}
                                   className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors bg-green-100 text-green-800 hover:bg-green-200 disabled:bg-green-50 disabled:text-green-500 disabled:cursor-not-allowed"
                                 >
                                     <Check className="w-4 h-4" /> 
-                                    {activeSection.status === SectionStatus.COMPLETED ? 'Concluído' : 'Marcar como Concluído'}
+                                    Finalizar para Validação
                                 </button>
+                               )}
+                               {activeSection.status === SectionStatus.COMPLETED && activeSection.validationFeedback && !activeSection.validationFeedback.includes("erro") && (
+                                <button
+                                  onClick={() => handleApproveSection(activeSection.id)}
+                                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors bg-indigo-600 text-white hover:bg-indigo-700"
+                                >
+                                  <Award className="w-4 h-4" />
+                                  Aprovar Seção
+                                </button>
+                               )}
+                               {activeSection.status === SectionStatus.APPROVED && (
+                                  <div className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold bg-indigo-50 text-indigo-700">
+                                      <Award className="w-4 h-4" />
+                                      Aprovado e Finalizado
+                                  </div>
+                               )}
                             </div>
                         </div>
                     )}
@@ -710,64 +1004,83 @@ const App: React.FC = () => {
             )}
         </section>
 
-        {/* Right Sidebar - Context & Diagnosis */}
-        <aside className="w-1/3 max-w-md flex-shrink-0 bg-white border-l border-slate-200 overflow-y-auto p-6 space-y-6">
-            <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
-                 <button onClick={handleRunDiagnosis} disabled={isDiagnosisRunning} className="w-full relative flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition-colors disabled:bg-slate-400 overflow-hidden">
-                     <div className="absolute left-0 top-0 h-full bg-green-500/50 transition-all duration-500" style={{ width: `${diagnosisProgress}%` }}></div>
-                     <span className="relative z-10 flex items-center justify-center gap-2">
-                        {isDiagnosisRunning ? <Loader2 className="w-5 h-5 animate-spin" /> : <Stethoscope className="w-5 h-5" />}
-                        {isDiagnosisRunning 
-                            ? `Etapa ${currentDiagnosisStep + 1}/${DIAGNOSIS_STEPS.length}: ${DIAGNOSIS_STEPS[currentDiagnosisStep].name}`
-                            : (lastDiagnosis ? 'Atualizar Diagnóstico' : 'Rodar Diagnóstico Global')}
-                     </span>
-                </button>
-                {isDiagnosisRunning && diagnosisLogs.length > 0 && (
-                     <div className="mt-3 p-3 bg-slate-900 rounded-md max-h-32 overflow-y-auto">
-                        <div className="flex items-center gap-2 text-xs font-semibold text-green-400 mb-2">
-                            <FileCode className="w-4 h-4" />
-                            Console de Análise
+        {/* Right Sidebar */}
+        <aside className={`relative flex-shrink-0 bg-white border-l border-slate-200 transition-all duration-300 ease-in-out ${isRightSidebarOpen ? 'w-1/3 max-w-md' : 'w-0'}`}>
+            <button
+                onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+                className="absolute top-1/2 -left-3 -translate-y-1/2 z-30 bg-white p-1 rounded-full shadow-md border border-slate-300 hover:bg-slate-100"
+                title={isRightSidebarOpen ? "Recolher" : "Expandir"}
+            >
+                {isRightSidebarOpen ? <ChevronsRight className="w-4 h-4 text-slate-600" /> : <ChevronsLeft className="w-4 h-4 text-slate-600" />}
+            </button>
+            <div className={`w-[33.33vw] max-w-md h-full overflow-y-auto p-6 space-y-6 transition-opacity duration-100 ${isRightSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
+                    <button onClick={handleRunDiagnosis} disabled={isDiagnosisRunning} className="w-full relative flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition-colors disabled:bg-slate-400 overflow-hidden">
+                        <div className="absolute left-0 top-0 h-full bg-green-500/50 transition-all duration-500" style={{ width: `${diagnosisProgress}%` }}></div>
+                        <span className="relative z-10 flex items-center justify-center gap-2">
+                            {isDiagnosisRunning ? <Loader2 className="w-5 h-5 animate-spin" /> : <Stethoscope className="w-5 h-5" />}
+                            {isDiagnosisRunning 
+                                ? `Etapa ${currentDiagnosisStep + 1}/${DIAGNOSIS_STEPS.length}: ${DIAGNOSIS_STEPS[currentDiagnosisStep].name}`
+                                : (lastDiagnosis ? 'Atualizar Diagnóstico' : 'Rodar Diagnóstico Global')}
+                        </span>
+                    </button>
+                    {isDiagnosisRunning && Array.isArray(diagnosisLogs) && diagnosisLogs.length > 0 && (
+                        <div className="mt-3 p-3 bg-slate-900 rounded-md max-h-32 overflow-y-auto">
+                            <div className="flex items-center gap-2 text-xs font-semibold text-green-400 mb-2">
+                                <FileCode className="w-4 h-4" />
+                                Console de Análise
+                            </div>
+                            {diagnosisLogs.map((log, index) => (
+                                <p key={index} className="text-xs text-slate-300 font-mono animate-in fade-in duration-500">
+                                    <span className="text-green-500 mr-2">&gt;</span>{log}
+                                </p>
+                            ))}
                         </div>
-                        {diagnosisLogs.map((log, index) => (
-                            <p key={index} className="text-xs text-slate-300 font-mono animate-in fade-in duration-500">
-                                <span className="text-green-500 mr-2">&gt;</span>{log}
-                            </p>
-                        ))}
-                     </div>
-                )}
-            </div>
-            
-            {lastDiagnosis && !isDiagnosisRunning && (
-              <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                 <h3 className="text-md font-bold text-slate-800 flex items-center gap-2"><History className="w-5 h-5 text-blue-600"/> Último Diagnóstico</h3>
-                 <div className="mt-4 p-3 bg-blue-100/50 rounded-lg text-center">
-                    <p className="text-sm text-blue-800 font-semibold">Nível de Prontidão</p>
-                    <p className="text-3xl font-bold text-blue-700">{lastDiagnosis.overallReadiness || 0}%</p>
-                 </div>
-                 {openGaps.length > 0 && (
-                   <div className="mt-4 space-y-2">
-                     <h4 className="font-semibold text-sm">Pendências Críticas ({openGaps.length})</h4>
-                       <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
-                         {openGaps.map(gap => (
-                           <div key={gap.id} className="text-xs bg-white p-2 border-l-4 border-orange-400 rounded">
-                             <span className={`font-bold mr-1 ${gap.severityLevel === 'A' ? 'text-red-600' : 'text-yellow-600'}`}>[{gap.severityLevel}]</span>
-                             {gap.description}
-                           </div>
-                         ))}
-                       </div>
-                   </div>
-                 )}
-              </div>
-            )}
-            
-            <StrategicMatrixViewer matrix={activeProject.currentData.contextState.strategicMatrix!} />
+                    )}
+                </div>
 
-            <ContextManager 
-                state={activeProject.currentData.contextState} 
-                onUpdate={(updates) => {
-                    setProjectData(activeProject.id, { contextState: { ...activeProject.currentData.contextState, ...updates } });
-                }}
-            />
+                <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
+                    <button onClick={handleValidateProject} disabled={isValidationLoading} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors disabled:bg-slate-400">
+                        {isValidationLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
+                        Validar Seções Concluídas
+                    </button>
+                </div>
+                
+                {lastDiagnosis && !isDiagnosisRunning && (
+                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+                    <h3 className="text-md font-bold text-slate-800 flex items-center gap-2"><History className="w-5 h-5 text-blue-600"/> Último Diagnóstico</h3>
+                    <div className="mt-4 p-3 bg-blue-100/50 rounded-lg text-center">
+                        <p className="text-sm text-blue-800 font-semibold">Nível de Prontidão</p>
+                        <p className="text-3xl font-bold text-blue-700">{lastDiagnosis.overallReadiness || 0}%</p>
+                    </div>
+                    {openGaps.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                        <h4 className="font-semibold text-sm">Pendências Críticas ({openGaps.length})</h4>
+                        <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
+                            {openGaps.map(gap => (
+                            <div key={gap.id} className="text-xs bg-white p-2 border-l-4 border-orange-400 rounded">
+                                <span className={`font-bold mr-1 ${gap.severityLevel === 'A' ? 'text-red-600' : 'text-yellow-600'}`}>[{gap.severityLevel}]</span>
+                                {typeof gap.description === 'string' ? gap.description : JSON.stringify(gap.description)}
+                            </div>
+                            ))}
+                        </div>
+                    </div>
+                    )}
+                </div>
+                )}
+                
+                <StrategicMatrixViewer 
+                    matrix={activeProject.currentData.contextState.strategicMatrix!} 
+                    onExpand={() => setIsMatrixModalOpen(true)}
+                />
+
+                <ContextManager 
+                    state={activeProject.currentData.contextState} 
+                    onUpdate={(updates) => {
+                        setProjectData(activeProject.id, { contextState: { ...activeProject.currentData.contextState, ...updates } });
+                    }}
+                />
+            </div>
         </aside>
       </main>
     </div>

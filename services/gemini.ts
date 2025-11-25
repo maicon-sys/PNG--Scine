@@ -13,12 +13,45 @@ const getAIClient = () => {
 // Helper to clean JSON string from Markdown fences and other garbage
 const cleanJsonString = (text: string): string => {
     if (!text) return "{}";
-    // This regex handles JSON that starts with { or [
-    const match = text.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
-    if (match) {
-        return match[0];
+
+    // Find the start of the JSON content
+    const startIndex = text.indexOf('{');
+    const startBracketIndex = text.indexOf('[');
+    
+    let actualStartIndex = -1;
+    if (startIndex > -1 && startBracketIndex > -1) {
+        actualStartIndex = Math.min(startIndex, startBracketIndex);
+    } else if (startIndex > -1) {
+        actualStartIndex = startIndex;
+    } else {
+        actualStartIndex = startBracketIndex;
     }
-    return "{}";
+
+    if (actualStartIndex === -1) {
+        return "{}"; // No JSON object or array found
+    }
+
+    // Find the end of the JSON content
+    const endIndex = text.lastIndexOf('}');
+    const endBracketIndex = text.lastIndexOf(']');
+    const actualEndIndex = Math.max(endIndex, endBracketIndex);
+
+    if (actualEndIndex === -1) {
+        return "{}"; // Malformed JSON
+    }
+
+    let jsonString = text.substring(actualStartIndex, actualEndIndex + 1);
+
+    // Remove comments, which are not valid in JSON but can be returned by the LLM
+    jsonString = jsonString.replace(/\/\*[\s\S]*?\*\/|([^:]|^)\/\/.*$/gm, '$1');
+
+    // Remove trailing commas, which are a common LLM error.
+    // This regex finds a comma, followed by optional whitespace, and then a closing brace or bracket.
+    // It replaces the comma and whitespace with just the closing delimiter.
+    jsonString = jsonString.replace(/,\s*([}\]])/g, '$1');
+
+
+    return jsonString;
 };
 
 // --- NEW 10-STEP DIAGNOSIS ENGINE ---
@@ -28,7 +61,6 @@ export const runDiagnosisStep = async (
     currentMatrix: StrategicMatrix
 ): Promise<DiagnosisStepResult> => {
     const ai = getAIClient();
-    // FIX: Corrected model name from "gem-2.5-flash" to "gemini-2.5-flash"
     const model = "gemini-2.5-flash";
     const step = DIAGNOSIS_STEPS[stepIndex];
 
@@ -48,6 +80,7 @@ export const runDiagnosisStep = async (
 
     TAREFA: Executar a **ETAPA ${stepIndex + 1}/${DIAGNOSIS_STEPS.length}: ${step.name}**.
     FOCO DA ETAPA: ${step.description}
+    BLOCOS-ALVO NESTA ETAPA: ${step.matrixTargets.join(', ')}
 
     INSTRUÇÕES DETALHADAS PARA ESTA ETAPA:
 
@@ -71,8 +104,9 @@ export const runDiagnosisStep = async (
     4.  **LOGS EM TEMPO REAL:**
         -   Gere logs curtos e objetivos sobre suas descobertas (ex: "Segmentos de clientes identificados.", "Incoerência detectada entre custos e receitas.").
 
-    5.  **PREENCHIMENTO DA MATRIZ:**
+    5.  **PREENCHIMENTO DA MATRIZ (REGRA CRÍTICA):**
         -   Preencha APENAS os blocos da Matriz Estratégica relacionados a esta etapa (${step.matrixTargets.join(', ')}).
+        -   **Sua resposta JSON DEVE conter as chaves para os blocos alvo, mesmo que você não encontre informações para eles.** Neste caso, os 'items' devem ser um array vazio e a 'description' deve ser "Informações insuficientes no contexto para preencher este bloco.", mas a estrutura do bloco deve existir.
         -   Atualize o 'clarityLevel' (0-100) de cada bloco modificado, com base na qualidade e completude da informação encontrada.
 
     6.  **ETAPA FINAL (10/10):** Se esta for a última etapa, sua missão é consolidar a análise:
@@ -80,6 +114,10 @@ export const runDiagnosisStep = async (
         -   Identifique as 'gaps' (pendências) finais do projeto, com base na Matriz completa.
 
     REGRAS GERAIS:
+    -   **FORMATO JSON RIGOROSO (MANDATÓRIO):** Sua resposta DEVE ser um JSON VÁLIDO.
+        -   **É ESTRITAMENTE PROIBIDO incluir vírgulas finais (trailing commas).**
+        -   **Exemplo de ERRO:** \`[ { "item": "A" }, { "item": "B" }, ]\` (vírgula depois de "B").
+        -   **Exemplo CORRETO:** \`[ { "item": "A" }, { "item": "B" } ]\` (sem vírgula depois de "B").
     -   **NÃO INVENTE DADOS.** Se faltarem informações, registre "Informações insuficientes..." na descrição, atribua 'confidence: "baixa"' e 'severity: "alto"'.
     -   Seja rigoroso. O objetivo é preparar o projeto para um comitê de crédito real.
 
@@ -140,7 +178,7 @@ export const runDiagnosisStep = async (
     const responseSchema = {
         type: Type.OBJECT,
         properties: {
-            logs: { type: Type.ARRAY, items: { type: Type.STRING }},
+            logs: { type: Type.ARRAY, items: { type: Type.STRING } },
             matrixUpdate: {
                 type: Type.OBJECT,
                 properties: {
@@ -179,7 +217,7 @@ export const runDiagnosisStep = async (
         
         const json = JSON.parse(cleanJsonString(result.text || "{}"));
         
-        // FIX: Validate structure and assign defaults if properties are missing to avoid "not iterable" errors
+        // Validate structure and assign defaults if properties are missing to avoid "not iterable" errors
         if (!Array.isArray(json.logs)) {
              json.logs = []; 
         }
@@ -190,10 +228,11 @@ export const runDiagnosisStep = async (
         return json as DiagnosisStepResult;
 
     } catch (e) {
-        console.error(`Erro na Etapa ${stepIndex + 1} (${step.name}):`, e);
+        const errorMessage = (e instanceof Error) ? e.message : String(e);
+        console.error(`Erro na Etapa ${stepIndex + 1} (${step.name}):`, errorMessage);
         // Return a structured error response that respects the interface
         return {
-            logs: [`Erro crítico ao processar a etapa ${stepIndex + 1}. A IA pode estar indisponível ou a resposta foi inválida.`],
+            logs: [`Erro crítico ao processar a etapa ${stepIndex + 1}. Detalhe: ${errorMessage}`],
             matrixUpdate: {},
         };
     }
@@ -266,7 +305,9 @@ export const generateSectionContent = async (
     ${promptTask}
 
     REGRAS GERAIS DE FORMATAÇÃO E CONDUTA:
-    - O texto deve ser inteiramente narrativo, técnico e profissional.
+    - **FOCO EM CLAREZA E CONTEXTO (REGRA CRÍTICA):** O texto deve ser escrito para um ser humano (avaliador, gestor), não para uma máquina. Contextualize todas as informações. Para apresentar dados comparativos (concorrentes), listas de características, cronogramas ou qualquer informação que possa ser estruturada, **É OBRIGATÓRIO o uso de tabelas Markdown**. Use negrito para destacar termos e conceitos importantes e quebre parágrafos longos com listas para facilitar a leitura dinâmica.
+    - **SIGILO DA FERRAMENTA (REGRA CRÍTICA):** A "Matriz Estratégica" é sua ferramenta interna de análise. É ESTRITAMENTE PROIBIDO mencionar a "Matriz Estratégica", "Canvas", "SWOT" ou qualquer um de seus blocos internos (como 'customerSegments', 'revenueStreams', etc.) no texto final. Use as informações da matriz para construir sua análise, mas apresente o resultado como uma conclusão sua, sem citar a fonte interna. O leitor final (o avaliador do banco) não sabe o que é a matriz.
+    - **AUTOSSUFICIÊNCIA (REGRA CRÍTICA):** O texto gerado deve ser 100% autossuficiente. Extraia e apresente todos os dados, análises e conclusões relevantes diretamente no texto. Assuma que o leitor final (ex: um avaliador do BRDE) NÃO terá acesso a nenhum arquivo anexo ou fonte externa. É ESTRITAMENTE PROIBIDO fazer referências genéricas como "ver anexo" ou "conforme a pesquisa anexada". Em vez disso, incorpore a informação essencial do anexo (ex: "A pesquisa com 500 respondentes indicou que 78% do público pagaria até R$29,90...") diretamente no seu texto.
     - Comece a escrever diretamente o conteúdo solicitado. NÃO repita o título da seção no início do texto.
     - É ESTRITAMENTE PROIBIDO criar capítulos ou subseções com novas numerações (ex: "10.8", "14.5", "2.1.1.1"). Mantenha-se fiel à estrutura do plano.
     - Use as FONTES DE DADOS para embasar todos os seus argumentos. Não invente informações.
@@ -326,7 +367,8 @@ export const fixSectionContentWithSearch = async (
     -   CONTEXTO GERAL DO PROJETO: """${context}"""
 
     REGRAS DE FORMATAÇÃO:
-    - O texto deve ser inteiramente narrativo, técnico e profissional.
+    - **FOCO EM CLAREZA E CONTEXTO (REGRA CRÍTICA):** O texto deve ser escrito para um ser humano (avaliador, gestor), não para uma máquina. Contextualize todas as informações. Para apresentar dados comparativos (concorrentes), listas de características, cronogramas ou qualquer informação que possa ser estruturada, **É OBRIGATÓRIO o uso de tabelas Markdown**. Use negrito para destacar termos e conceitos importantes e quebre parágrafos longos com listas para facilitar a leitura dinâmica.
+    - **SIGILO DA FERRAMENTA (REGRA CRÍTICA):** A "Matriz Estratégica" é sua ferramenta interna de análise. É ESTRITAMENTE PROIBIDO mencionar a "Matriz Estratégica" ou seus blocos internos (como 'customerSegments') no texto final. Use os dados da matriz, mas não cite a fonte. O leitor final (o avaliador do banco) não sabe o que é a matriz.
     - Comece a escrever diretamente o conteúdo corrigido. NÃO inclua o título da seção.
     `;
 
@@ -336,7 +378,7 @@ export const fixSectionContentWithSearch = async (
             contents: prompt,
             config: {
                 maxOutputTokens: 8192,
-                tools: [{ googleSearch: {} }],
+                tools: [{ googleSearch: {} }]
             }
         });
 
@@ -368,16 +410,24 @@ export const generateFinancialData = async (
     const model = "gemini-2.5-flash";
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz de dados não disponível.";
     const prompt = `
-    Analista Financeiro BRDE. Projeto SCine.
-    REGRAS: ${BRDE_FSA_RULES}
-    MATRIZ ESTRATÉGICA: ${matrixContext}
-    Gere projeção de 5 anos (DRE simplificado) considerando 2 anos de carência, com base nos blocos 'revenueStreams' e 'costStructure' da matriz.
-    Output JSON: { "analysis": "Texto em Markdown com análise e conclusão", "data": [{ "year": "Ano 1", "revenue": 0, "expenses": 0, "profit": 0 }] }
+    ATUE COMO: Analista Financeiro Sênior do BRDE, avaliando o projeto SCine.
+    REGRAS DE FINANCIAMENTO APLICÁVEIS: ${BRDE_FSA_RULES}
+    DADOS ESTRATÉGIOS DISPONÍVEIS: ${matrixContext}
+    
+    TAREFA:
+    1.  Gere uma projeção financeira DRE simplificada para 5 anos, considerando 2 anos de carência. Baseie os cálculos nos dados de 'revenueStreams' e 'costStructure' disponíveis.
+    2.  Escreva um texto de análise (em Markdown) sobre a viabilidade financeira do projeto, incluindo conclusões.
+    
+    REGRAS CRÍTICAS DE OUTPUT:
+    - **SIGILO DA FERRAMENTA:** No texto da "analysis", é ESTRITAMENTE PROIBIDO mencionar a "Matriz Estratégica" ou seus blocos ('revenueStreams', 'costStructure', etc.). Apresente a análise como sua própria conclusão profissional, baseada nos dados do projeto. O leitor final não conhece suas ferramentas internas.
+    - **FORMATO JSON:** Sua resposta DEVE ser um JSON válido com a estrutura: { "analysis": "...", "data": [...] }.
+
+    Gere o JSON abaixo.
     `;
     try {
         const result = await ai.models.generateContent({ model, contents: prompt, config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { analysis: { type: Type.STRING }, data: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { year: { type: Type.STRING }, revenue: { type: Type.NUMBER }, expenses: { type: Type.NUMBER }, profit: { type: Type.NUMBER } } } } } } } });
         const json = JSON.parse(cleanJsonString(result.text || "{}"));
-        // FIX: Ensure json.data is an array before returning.
+        // Ensure json.data is an array before returning.
         const data = Array.isArray(json.data) ? json.data : [];
         return { analysis: json.analysis || "Análise indisponível.", data: data };
     } catch (e) { console.error(e); return { analysis: "Erro ao gerar dados financeiros.", data: [] }; }
@@ -386,7 +436,6 @@ export const generateFinancialData = async (
 export const generateProjectImage = async (promptDescription: string): Promise<string> => {
     const ai = getAIClient();
     try {
-        // FIX: Switched from deprecated generateImages to generateContent with an image model as per guidelines.
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: {
@@ -399,8 +448,7 @@ export const generateProjectImage = async (promptDescription: string): Promise<s
             }
         });
 
-        // FIX: Iterate through response parts to find the generated image data, as per guidelines.
-        for (const part of response.candidates[0].content.parts) {
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
             if (part.inlineData) {
                 return part.inlineData.data;
             }

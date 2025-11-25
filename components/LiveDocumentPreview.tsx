@@ -1,5 +1,3 @@
-
-
 import React, { useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -17,9 +15,9 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
   const docRef = useRef<HTMLDivElement>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-  // Filter only completed sections and sort by ID to ensure correct order
+  // Filter only completed/approved sections and sort by ID to ensure correct order
   const sortedSections = sections
-    .filter(s => s.status === SectionStatus.COMPLETED)
+    .filter(s => s.status === SectionStatus.COMPLETED || s.status === SectionStatus.APPROVED)
     .sort((a, b) => {
       const aParts = a.id.split('.').map(Number);
       const bParts = b.id.split('.').map(Number);
@@ -44,44 +42,33 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     
     try {
       const { jsPDF } = window.jspdf;
-      // Get all page elements
-      const pageElements = input.querySelectorAll('.page-a4');
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-
-      for (let i = 0; i < pageElements.length; i++) {
-        const page = pageElements[i] as HTMLElement;
-        const canvas = await window.html2canvas(page, {
-          scale: 2, // Higher scale for better quality
+      
+      // Use the html method with auto-paging
+      await pdf.html(input, {
+        callback: function (doc) {
+          // Add page numbers
+          const pageCount = doc.internal.getNumberOfPages();
+          for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setFontSize(10);
+            doc.setTextColor(100);
+            // Position at bottom center. A4 height is 297mm.
+            doc.text(`Página ${i} de ${pageCount}`, doc.internal.pageSize.getWidth() / 2, 287, { align: 'center' });
+          }
+          doc.save(`${projectName.replace(/[\s/]/g, '_')}_Plano_de_Negocios.pdf`);
+        },
+        margin: [20, 20, 20, 20], // margins in mm [top, right, bottom, left]
+        autoPaging: 'text', // Breaks pages on text nodes
+        html2canvas: {
+          scale: 0.26, // Adjust scale for quality vs. size. (210mm / ~800px)
           useCORS: true,
           logging: false,
-        });
-
-        const imgData = canvas.toDataURL('image/png');
-        const imgProps = pdf.getImageProperties(imgData);
-        const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        // Add first page
-        if (i > 0) {
-            pdf.addPage();
-        }
-        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
-        heightLeft -= pdfHeight;
-
-        // Add extra pages if content overflows
-        while (heightLeft > 0) {
-          position -= pdfHeight;
-          pdf.addPage();
-          pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
-          heightLeft -= pdfHeight;
-        }
-      }
-      
-      pdf.save(`${projectName.replace(/[\s/]/g, '_')}_Plano_de_Negocios.pdf`);
+          windowWidth: input.scrollWidth,
+          windowHeight: input.scrollHeight
+        },
+        pagebreak: { mode: 'css', before: '.break-before-page', after: '.break-after-page' }
+      });
 
     } catch (e) {
       console.error("PDF generation failed", e);
@@ -170,7 +157,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
       <div className="flex-1 overflow-y-auto p-8">
         <div ref={docRef}>
             {/* Cover Page */}
-            <div className="page-a4 bg-white w-[210mm] h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 flex flex-col">
+            <div className="page-a4 bg-white w-[210mm] h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 flex flex-col break-after-page">
                 <div className="flex flex-col justify-center items-center h-full">
                     <h1 className="text-4xl font-bold text-center text-black mb-4 uppercase tracking-wider">{projectName}</h1>
                     <h2 className="text-2xl text-center text-gray-600 mb-12">Plano de Negócios</h2>
@@ -183,12 +170,12 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
             </div>
 
             {/* Table of Contents */}
-            <div className="page-a4 bg-white w-[210mm] h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 break-before-page">
+            <div className="page-a4 bg-white w-[210mm] h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 break-after-page">
                 <h2 className="text-2xl font-bold mb-6 text-black border-b border-black pb-2">Sumário</h2>
                 <div className="space-y-2">
                     {sortedSections.map(section => (
-                        <div key={section.id} className="flex justify-between text-sm">
-                            <span className="text-gray-900 font-medium">{section.chapter} - {section.title}</span>
+                        <div key={`toc-${section.id}`} className="flex justify-between text-sm">
+                            <span className="text-gray-900 font-medium truncate pr-2">{section.id} {section.title}</span>
                             <span className="border-b border-dotted border-gray-400 flex-grow mx-2 relative top-[-4px]"></span>
                         </div>
                     ))}
@@ -196,33 +183,37 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
             </div>
 
             {/* Content Pages */}
-            {sortedSections.length > 0 && sortedSections.map(section => {
-                const glossaryTerms = getGlossaryTerms(section.content);
-                return (
-                    <div key={section.id} className="page-a4 bg-white w-[210mm] min-h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 break-before-page">
-                        <div className="flex items-baseline gap-2 mb-4 border-b border-gray-200 pb-1">
-                            <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">{section.id}</span>
-                            <h2 className="text-xl font-bold text-black">{section.title}</h2>
-                        </div>
-                        <div className="prose prose-slate max-w-none text-justify text-black">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                {section.content}
-                            </ReactMarkdown>
-                        </div>
-                        
-                        {glossaryTerms.length > 0 && (
-                            <div className="mt-6 pt-3 border-t border-gray-300 text-[10px] text-gray-500 font-mono leading-tight">
-                                {glossaryTerms.map((term, idx) => (
-                                    <span key={idx} className="mr-3 inline-block">
-                                        <ReactMarkdown components={{p: ({node, ...props}) => <span {...props} />}}>{term}</ReactMarkdown>
-                                        {idx < glossaryTerms.length - 1 && ";"}
-                                    </span>
-                                ))}
+            {sortedSections.length > 0 && (
+                <div className="page-a4 bg-white w-[210mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0">
+                    {sortedSections.map(section => {
+                        const glossaryTerms = getGlossaryTerms(section.content);
+                        return (
+                            <div key={section.id} id={`section-preview-${section.id}`} className="break-before-page">
+                                <div className="flex items-baseline gap-2 mb-4 border-b border-gray-200 pb-1">
+                                    <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">{section.id}</span>
+                                    <h2 className="text-xl font-bold text-black">{section.title}</h2>
+                                </div>
+                                <div className="prose prose-slate max-w-none text-justify text-black">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                        {section.content}
+                                    </ReactMarkdown>
+                                </div>
+                                
+                                {glossaryTerms.length > 0 && (
+                                    <div className="mt-6 pt-3 border-t border-gray-300 text-[10px] text-gray-500 font-mono leading-tight">
+                                        {glossaryTerms.map((term, idx) => (
+                                            <span key={idx} className="mr-3 inline-block">
+                                                <ReactMarkdown components={{p: ({node, ...props}) => <span {...props} />}}>{term}</ReactMarkdown>
+                                                {idx < glossaryTerms.length - 1 && ";"}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </div>
-                );
-            })}
+                        );
+                    })}
+                </div>
+            )}
         </div>
       </div>
     </div>

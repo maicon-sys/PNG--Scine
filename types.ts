@@ -12,6 +12,7 @@ export enum SectionStatus {
   DRAFT = 'DRAFT', // Content generated, user review needed
   COMPLETED = 'COMPLETED',
   REVIEW_ALERT = 'REVIEW_ALERT', // Validation failed, user needs to review
+  APPROVED = 'APPROVED', // Validation passed and user locked it in
 }
 
 export enum SectionType {
