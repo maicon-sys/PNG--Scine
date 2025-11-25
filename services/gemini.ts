@@ -2,6 +2,9 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, StrategicMatrix, AnalysisGap, BusinessGoal, DiagnosisStepResult, CanvasBlock, SwotBlock, MatrixItem, SectionStatus } from "../types";
 import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
 
+// FIX: Centraliza o nome do modelo de IA em uma constante para fácil manutenção.
+const AI_MODEL_NAME = "gemini-2.5-flash";
+
 // Helper to clean JSON string safely (State Machine Parser with Candidate Search)
 const cleanJsonString = (text: string): string => {
     if (!text) return "{}";
@@ -148,7 +151,7 @@ export const runDiagnosisStep = async (
 ): Promise<DiagnosisStepResult> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = "gemini-2.5-flash";
+    const model = AI_MODEL_NAME;
     const step = DIAGNOSIS_STEPS[stepIndex];
 
     const prompt = `
@@ -358,7 +361,7 @@ export const generateSectionContent = async (
 ): Promise<string> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = "gemini-2.5-flash";
+    const model = AI_MODEL_NAME;
 
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz estratégica não disponível.";
 
@@ -445,7 +448,7 @@ export const fixSectionContentWithSearch = async (
 ): Promise<{ newContent: string; sources: { url: string; title: string }[] }> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = "gemini-2.5-flash"; 
+    const model = AI_MODEL_NAME; 
 
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz estratégica não disponível.";
 
@@ -513,7 +516,7 @@ export const generateFinancialData = async (
 ): Promise<{ analysis: string, data: FinancialYear[] }> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = "gemini-2.5-flash";
+    const model = AI_MODEL_NAME;
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz de dados não disponível.";
     const prompt = `
     ATUE COMO: Analista Financeiro Sênior do BRDE, avaliando o projeto SCine.
@@ -575,7 +578,7 @@ export const validateCompletedSections = async (
 ): Promise<{ sectionId: string; isValid: boolean; feedback: string }[]> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = 'gemini-2.5-flash';
+    const model = AI_MODEL_NAME;
 
     // FIX: A filtragem agora inclui seções com status REVIEW_ALERT para revalidação.
     const sectionsToValidate = sections
