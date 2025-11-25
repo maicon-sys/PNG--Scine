@@ -57,6 +57,12 @@ const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   
+  // Ref to track latest projects state for async operations (fixing stale closures)
+  const projectsRef = useRef(projects);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
   // Editor-specific state
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set());
@@ -175,7 +181,6 @@ const App: React.FC = () => {
         // If not in AI Studio environment, assume API key is handled via other means (e.g. build process env)
         // or that the environment variable VITE_API_KEY is available.
         // For local development, VITE_API_KEY might be used.
-        // process.env IS NOT AVAILABLE IN VITE BROWSER ENVIRONMENT
         setHasApiKey(!!import.meta.env.VITE_API_KEY); 
       }
     };
@@ -232,10 +237,12 @@ const App: React.FC = () => {
     setProjects(prev => prev.filter(p => p.id !== id));
   }, []);
 
-  const getFullContext = useCallback((options: { includeCompleted?: boolean, maxLength?: number } = {}) => {
-    const { includeCompleted = true, maxLength = 100000 } = options; // Default max length 100k
-    if (!activeProject) return "";
-    const { contextState } = activeProject.currentData;
+  const getFullContext = useCallback((options: { includeCompleted?: boolean, maxLength?: number, project?: Project } = {}) => {
+    const { includeCompleted = true, maxLength = 100000, project } = options; 
+    const targetProject = project || activeProject; // Use passed project or fallback to activeProject state
+
+    if (!targetProject) return "";
+    const { contextState } = targetProject.currentData;
     
     const userUploadedFiles = contextState.uploadedFiles.filter(f => !f.isGenerated && f.type === 'text' && f.content && !f.isRestored);
     const completedSectionsContent = includeCompleted 
@@ -311,9 +318,17 @@ const App: React.FC = () => {
     for (let i = 0; i < DIAGNOSIS_STEPS.length; i++) {
         setCurrentDiagnosisStep(i);
         setDiagnosisProgress((i / DIAGNOSIS_STEPS.length) * 100);
+
+        // Retrieve fresh state from ref to avoid stale closure issues during long async loop
+        const freshActiveProject = projectsRef.current.find(p => p.id === activeProjectId);
+        if (!freshActiveProject) {
+            console.error("Project state lost during diagnosis");
+            break;
+        }
         
         try {
-            const stepResult = await runDiagnosisStep(i, getFullContext({ maxLength: 100000 }), currentMatrix);
+            // Pass fresh project to getFullContext to ensure AI sees latest updates
+            const stepResult = await runDiagnosisStep(i, getFullContext({ maxLength: 100000, project: freshActiveProject }), currentMatrix);
             
             if (Array.isArray(stepResult.logs)) {
                 const sanitizedLogs = stepResult.logs.map(log => 
@@ -342,8 +357,9 @@ const App: React.FC = () => {
                         }
                     }
                 });
-                setProjectData(activeProject.id, { 
-                    contextState: { ...activeProject.currentData.contextState, strategicMatrix: currentMatrix }
+                // Save using fresh project state
+                setProjectData(freshActiveProject.id, { 
+                    contextState: { ...freshActiveProject.currentData.contextState, strategicMatrix: currentMatrix }
                 });
             }
             
@@ -376,8 +392,9 @@ const App: React.FC = () => {
                     strategicPaths: [],
                     suggestedSections: []
                 };
-                setProjectData(activeProject.id, { 
-                    diagnosisHistory: [...activeProject.currentData.diagnosisHistory, finalDiagnosis] 
+                // Save history to fresh project state
+                setProjectData(freshActiveProject.id, { 
+                    diagnosisHistory: [...freshActiveProject.currentData.diagnosisHistory, finalDiagnosis] 
                 });
             }
         } catch (error) {
@@ -394,7 +411,7 @@ const App: React.FC = () => {
     setDiagnosisProgress(100);
     setIsDiagnosisRunning(false);
 
-  }, [activeProject, getFullContext, setProjectData, hasApiKey, setIsApiKeySelectionOpen]);
+  }, [activeProject, activeProjectId, getFullContext, setProjectData, hasApiKey, setIsApiKeySelectionOpen]);
 
     const handleValidateProject = async () => {
         if (!activeProject) return;
