@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Download, FileText, ArrowLeft, Loader2 } from 'lucide-react';
@@ -14,6 +14,19 @@ interface LiveDocumentPreviewProps {
 export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projectName, sections, onClose }) => {
   const docRef = useRef<HTMLDivElement>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [scriptsLoaded, setScriptsLoaded] = useState(false);
+
+  useEffect(() => {
+    const checkScripts = () => {
+      if (window.jspdf && window.html2canvas) {
+        setScriptsLoaded(true);
+      }
+    };
+
+    checkScripts();
+    const interval = setInterval(checkScripts, 500);
+    return () => clearInterval(interval);
+  }, []);
 
   // Filter only completed/approved sections and sort by ID to ensure correct order
   const sortedSections = sections
@@ -47,7 +60,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     const input = docRef.current;
     if (!input) return;
     if (!window.jspdf || !window.html2canvas) {
-      alert("As bibliotecas de geração de PDF não carregaram. Por favor, recarregue a página.");
+      alert("As bibliotecas de geração de PDF ainda não carregaram. Aguarde um momento e tente novamente.");
       return;
     }
     
@@ -148,13 +161,18 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
           </button>
           <button 
             onClick={handleDownloadPdf}
-            disabled={isGeneratingPdf}
-            className="flex items-center justify-center gap-2 px-4 py-2 w-44 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium shadow-sm transition-colors disabled:bg-blue-400 disabled:cursor-wait"
+            disabled={isGeneratingPdf || !scriptsLoaded}
+            className="flex items-center justify-center gap-2 px-4 py-2 w-48 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium shadow-sm transition-colors disabled:bg-blue-400 disabled:cursor-wait"
           >
             {isGeneratingPdf ? (
                 <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span>Gerando PDF...</span>
+                </>
+            ) : !scriptsLoaded ? (
+                <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Carregando Libs...</span>
                 </>
             ) : (
                 <>
