@@ -104,8 +104,12 @@ const App: React.FC = () => {
   };
 
   const handleDeleteProject = (id: string) => {
-    setProjects(prev => prev.filter(p => p.id !== id));
-    if (activeProjectId === id) setActiveProjectId(null);
+    // FIX: Garante que o activeProjectId seja limpo se o projeto ativo for deletado,
+    // prevenindo um "estado zumbi" onde a UI tenta renderizar um projeto inexistente.
+    if (activeProjectId === id) {
+      setActiveProjectId(null);
+    }
+    setProjects(prevProjects => prevProjects.filter(p => p.id !== id));
   };
 
   const handleOpenProject = (id: string) => {
