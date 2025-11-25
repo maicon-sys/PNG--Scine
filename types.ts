@@ -1,9 +1,5 @@
 
 
-
-
-
-
 export enum SectionStatus {
   PENDING = 'PENDING',
   ANALYZING = 'ANALYZING', // AI is checking if info is missing
@@ -225,11 +221,19 @@ export interface Project {
   versions: ProjectVersion[];
 }
 
-// Add global definition for window.pdfjsLib
+// Fix: Add AIStudio interface to be used in the global Window type.
+export interface AIStudio {
+  hasSelectedApiKey: () => Promise<boolean>;
+  openSelectKey: () => Promise<void>;
+}
+
+// Add global definition for window properties
 declare global {
   interface Window {
     pdfjsLib: any;
     jspdf: any;
     html2canvas: any;
+    // FIX: Consolidate all global window interface augmentations here.
+    aistudio?: AIStudio;
   }
 }

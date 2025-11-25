@@ -23,15 +23,7 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
-// Mock types for window.aistudio
-declare global {
-  interface Window {
-    aistudio?: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    }
-  }
-}
+// FIX: Removed redundant global type definition. It is now centralized in `types.ts`.
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -68,8 +60,9 @@ const App: React.FC = () => {
   }, [activeSection]);
 
   const checkApiKey = async () => {
-    if ((window as any).aistudio) {
-      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+    // FIX: Removed 'as any' cast due to global type definition.
+    if (window.aistudio) {
+      const hasKey = await window.aistudio.hasSelectedApiKey();
       setHasApiKey(hasKey);
     } else {
       // Fallback for environment without aistudio wrapper, assuming process.env is injected
@@ -156,17 +149,61 @@ const App: React.FC = () => {
       context += `--- ARQUIVO: ${file.name} ---\n${file.content}\n\n`;
     });
 
-    if (context.length > maxLength) {
-      return context.substring(0, maxLength) + "\n... (contexto truncado)";
+    if (context.length <= maxLength) {
+      return context;
     }
-    return context;
+    
+    let cutIndex = maxLength;
+    
+    // Tenta encontrar um ponto de corte seguro retrocedendo a partir do limite máximo.
+    while (cutIndex > 0) {
+        // Passo 1: Encontrar o limite de palavra anterior (espaço ou nova linha).
+        const lastSpace = context.lastIndexOf(' ', cutIndex - 1);
+        const lastNewline = context.lastIndexOf('\n', cutIndex - 1);
+        const potentialCutIndex = Math.max(lastSpace, lastNewline);
+
+        if (potentialCutIndex === -1) {
+            // Se não encontrar limite de palavra, não é possível truncar de forma inteligente.
+            break; 
+        }
+        
+        cutIndex = potentialCutIndex;
+
+        // Passo 2: Verificar se o contexto até este ponto tem chaves/colchetes balanceados.
+        const sub = context.substring(0, cutIndex);
+        let braceDepth = 0;
+        let bracketDepth = 0;
+        let inString = false;
+
+        for (const char of sub) {
+            if (char === '"') {
+                // Verificação simples de string, sem tratamento de escapes.
+                inString = !inString;
+            } else if (!inString) {
+                if (char === '{') braceDepth++;
+                else if (char === '}') braceDepth--;
+                else if (char === '[') bracketDepth++;
+                else if (char === ']') bracketDepth--;
+            }
+        }
+
+        // Passo 3: Se estiver balanceado (profundidade não positiva), encontramos um bom ponto.
+        if (braceDepth <= 0 && bracketDepth <= 0) {
+            return context.substring(0, cutIndex) + `\n\n... (AVISO: O contexto era muito longo e foi truncado de forma segura para ${cutIndex} caracteres para caber no limite de ${maxLength}. A análise se baseará nestes dados.)`;
+        }
+        // Se não estiver balanceado, o loop continua do `cutIndex` anterior.
+    }
+
+    // Fallback: Se nenhum ponto seguro for encontrado, realiza um corte abrupto no limite original.
+    return context.substring(0, maxLength) + `\n\n... (AVISO: O contexto excedeu ${maxLength} caracteres e foi cortado abruptamente. AVISO: A estrutura de dados no final (ex: JSON) pode estar corrompida, o que pode afetar a análise da IA.)`;
   };
 
   const handleRunDiagnosis = async () => {
     if (!activeProject) return;
 
     if (!hasApiKey) {
-      if ((window as any).aistudio) {
+      // FIX: Removed 'as any' cast due to global type definition.
+      if (window.aistudio) {
         setIsApiKeySelectionOpen(true);
         return;
       }
@@ -239,7 +276,8 @@ const App: React.FC = () => {
       if (!activeProject) return;
 
       if (!hasApiKey) {
-        if ((window as any).aistudio) {
+        // FIX: Removed 'as any' cast due to global type definition.
+        if (window.aistudio) {
           setIsApiKeySelectionOpen(true);
           return;
         }

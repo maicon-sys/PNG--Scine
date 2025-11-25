@@ -10,8 +10,8 @@ export const SelectApiKeyModal: React.FC<SelectApiKeyModalProps> = ({ onClose, o
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSelectApiKey = async () => {
-    // Cast window to any to access aistudio properties without strict typing issues
-    const aistudio = (window as any).aistudio;
+    // FIX: Removed 'as any' cast due to global type definition.
+    const aistudio = window.aistudio;
     
     if (aistudio && typeof aistudio.openSelectKey === 'function') {
       setIsLoading(true);

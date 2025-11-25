@@ -32,7 +32,51 @@ export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate 
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
-      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      
+      let pageText = '';
+      if (textContent.items && textContent.items.length > 0) {
+        // Sort items by y-coordinate (descending), then x-coordinate (ascending) to follow reading order.
+        const sortedItems = textContent.items.slice().sort((a: any, b: any) => {
+            if (a.transform[5] > b.transform[5]) return -1;
+            if (a.transform[5] < b.transform[5]) return 1;
+            if (a.transform[4] < b.transform[4]) return -1;
+            if (a.transform[4] > b.transform[4]) return 1;
+            return 0;
+        });
+
+        for (let j = 0; j < sortedItems.length; j++) {
+            const currentItem = sortedItems[j];
+            pageText += currentItem.str;
+
+            // Look ahead to the next item to decide if we need a space or a newline.
+            if (j < sortedItems.length - 1) {
+                const nextItem = sortedItems[j + 1];
+
+                const currentY = currentItem.transform[5];
+                const nextY = nextItem.transform[5];
+                
+                // Heuristic for new line: if y-coordinates are too different, it's a new line.
+                // A reasonable threshold is half the height of the current text item.
+                if (Math.abs(currentY - nextY) > currentItem.height / 2) {
+                    pageText += '\n';
+                } else {
+                    // Same line: check horizontal distance to decide if it's a space.
+                    const endOfCurrent = currentItem.transform[4] + currentItem.width;
+                    const startOfNext = nextItem.transform[4];
+                    const gap = startOfNext - endOfCurrent;
+                    
+                    // Heuristic for space: if the gap is larger than a fraction of character height, add a space.
+                    const spaceThreshold = currentItem.height * 0.25;
+                    
+                    if (gap > spaceThreshold) {
+                        pageText += ' ';
+                    }
+                    // If gap is small or negative, it's part of the same word (e.g., kerning). No space added.
+                }
+            }
+        }
+      }
+
       fullText += `\n--- Página ${i} ---\n${pageText}`;
     }
     return fullText;
