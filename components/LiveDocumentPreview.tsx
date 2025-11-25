@@ -2,16 +2,17 @@ import React, { useRef, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Download, FileText, ArrowLeft, Loader2 } from 'lucide-react';
-import { PlanSection, SectionStatus } from '../types';
+import { PlanSection, SectionStatus, ProjectAsset } from '../types';
 import { GLOSSARY_TERMS } from '../constants';
 
 interface LiveDocumentPreviewProps {
   projectName: string;
   sections: PlanSection[];
+  assets: ProjectAsset[];
   onClose: () => void;
 }
 
-export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projectName, sections, onClose }) => {
+export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projectName, sections, assets, onClose }) => {
   const docRef = useRef<HTMLDivElement>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [scriptsLoaded, setScriptsLoaded] = useState(false);
@@ -140,6 +141,21 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     th: ({...props}) => <th className="px-4 py-2 text-left text-xs font-bold text-gray-900 uppercase tracking-wider border-r border-gray-300" {...props} />,
     td: ({...props}) => <td className="px-4 py-2 text-sm text-gray-900 border-t border-gray-300 border-r" {...props} />,
     strong: ({...props}) => <strong className="font-bold text-black" {...props} />,
+    img: ({node, ...props}: any) => {
+        // Resolve asset:// syntax
+        let src = props.src || '';
+        if (src.startsWith('asset://')) {
+            const assetId = src.replace('asset://', '');
+            const asset = assets.find(a => a.id === assetId);
+            if (asset) {
+                // Determine mime type based on asset type or data prefix if present (though stored as raw base64 usually)
+                // Assuming raw base64 stored in data:
+                const mimeType = asset.type === 'photo' ? 'image/jpeg' : 'image/png';
+                src = `data:${mimeType};base64,${asset.data}`;
+            }
+        }
+        return <img {...props} src={src} className="max-w-full h-auto my-6 rounded-lg shadow-md mx-auto print:block" />;
+    }
   };
 
   return (

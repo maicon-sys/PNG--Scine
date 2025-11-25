@@ -642,7 +642,7 @@ const App: React.FC = () => {
 
         setProjectData(activeProject.id, { contextState: newContextState });
         
-        alert(`Imagem para "${section.title}" gerada com sucesso e adicionada aos Ativos do Projeto na barra lateral direita!`);
+        alert(`Imagem para "${section.title}" gerada com sucesso e adicionada aos Ativos do Projeto na barra lateral direita! Para inseri-la no texto, use o ID do asset: ![Descrição](asset://${newAsset.id})`);
 
     } catch (error) {
         console.error("Image generation failed:", error);
@@ -774,7 +774,7 @@ const App: React.FC = () => {
     );
   }
   
-  if (currentView === 'preview') return <LiveDocumentPreview projectName={activeProject.name} sections={activeProject.currentData.sections} onClose={() => setCurrentView('editor')} />;
+  if (currentView === 'preview') return <LiveDocumentPreview projectName={activeProject.name} sections={activeProject.currentData.sections} assets={activeProject.currentData.contextState.assets} onClose={() => setCurrentView('editor')} />;
 
   const lastDiagnosis = Array.isArray(activeProject.currentData.diagnosisHistory)
     ? activeProject.currentData.diagnosisHistory.slice(-1)[0]
@@ -815,6 +815,20 @@ const App: React.FC = () => {
     li: ({...props}) => <li className="mb-2" {...props} />,
     strong: ({...props}) => <strong className="font-semibold text-slate-900" {...props} />,
     a: ({...props}) => <a className="text-blue-600 hover:underline" {...props} />,
+    img: ({node, ...props}: any) => {
+        // Resolve asset:// syntax in editor as well
+        let src = props.src || '';
+        if (src.startsWith('asset://')) {
+            const assetId = src.replace('asset://', '');
+            const asset = activeProject.currentData.contextState.assets.find(a => a.id === assetId);
+            if (asset) {
+                // Determine mime type (fallback to jpeg if unknown, usually safe for photos)
+                const mimeType = asset.type === 'photo' ? 'image/jpeg' : 'image/png';
+                src = `data:${mimeType};base64,${asset.data}`;
+            }
+        }
+        return <img {...props} src={src} className="max-w-full h-auto my-4 rounded-lg shadow-sm mx-auto" />;
+    }
   };
 
     let mainActionButton;
