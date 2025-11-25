@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, StrategicMatrix, AnalysisGap, BusinessGoal, DiagnosisStepResult, CanvasBlock, SwotBlock, MatrixItem } from "../types";
+import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, StrategicMatrix, AnalysisGap, BusinessGoal, DiagnosisStepResult, CanvasBlock, SwotBlock, MatrixItem, SectionStatus } from "../types";
 import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
 
 // Helper to clean JSON string safely (State Machine Parser with Candidate Search)
@@ -568,7 +568,7 @@ export const generateProjectImage = async (promptDescription: string): Promise<s
 };
 
 export const validateCompletedSections = async (
-    completedSections: { id: string; title: string; content: string }[],
+    sections: PlanSection[],
     strategicMatrix: StrategicMatrix | null,
     methodology: string,
     goal: BusinessGoal
@@ -577,8 +577,17 @@ export const validateCompletedSections = async (
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = 'gemini-2.5-flash';
 
+    // FIX: A filtragem agora inclui seções com status REVIEW_ALERT para revalidação.
+    const sectionsToValidate = sections
+        .filter(s => s.status === SectionStatus.COMPLETED || s.status === SectionStatus.REVIEW_ALERT)
+        .map(({ id, title, content }) => ({ id, title, content }));
+
+    if (sectionsToValidate.length === 0) {
+        return [];
+    }
+
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz de dados não disponível.";
-    const sectionsContext = JSON.stringify(completedSections);
+    const sectionsContext = JSON.stringify(sectionsToValidate);
 
     const prompt = `
     Você é um Auditor Sênior de Projetos do BRDE, especialista na metodologia SEBRAE.
@@ -631,7 +640,7 @@ export const validateCompletedSections = async (
     } catch (e) {
         console.error("Erro na validação das seções:", e);
         // Return a generic error for all sections
-        return completedSections.map(s => ({
+        return sectionsToValidate.map(s => ({
             sectionId: s.id,
             isValid: false,
             feedback: "Ocorreu um erro no serviço de validação. A IA pode estar indisponível. Tente novamente."
