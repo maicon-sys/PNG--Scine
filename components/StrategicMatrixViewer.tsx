@@ -33,15 +33,15 @@ const CanvasBlockDisplay = ({ title, block, icon }: { title: string, block: any,
                 <span className="text-xs font-mono px-2 py-0.5 bg-blue-100 text-blue-800 rounded">{block.clarityLevel}%</span>
             </h4>
             <div className="p-4 space-y-2">
-                <p className="text-xs text-gray-500 italic">{block.description}</p>
+                <p className="text-xs text-gray-500 italic">{typeof block.description === 'string' ? block.description : JSON.stringify(block.description)}</p>
                  <ul className="space-y-1">
                     {block.items?.map((i: MatrixItem, index: number) => (
                         <li key={index} className="text-xs p-2 bg-white rounded border border-gray-100">
                            <div className="flex justify-between items-start gap-2">
-                                <strong className="font-semibold text-gray-800">{i.item}:</strong> 
+                                <strong className="font-semibold text-gray-800">{typeof i.item === 'string' ? i.item : JSON.stringify(i.item)}:</strong> 
                                 <SeverityBadge severity={i.severity} />
                            </div>
-                           <p className="mt-1 text-gray-600">{i.description}</p>
+                           <p className="mt-1 text-gray-600">{typeof i.description === 'string' ? i.description : JSON.stringify(i.description)}</p>
                         </li>
                     ))}
                 </ul>
@@ -63,7 +63,7 @@ const SwotBlockDisplay = ({ title, block, icon }: { title: string, block: any, i
                  <ul className="space-y-2 text-xs text-gray-800">
                     {block.items?.map((i: MatrixItem, index: number) => (
                         <li key={index} className="flex justify-between items-center gap-2">
-                            <span>- {i.item}</span>
+                            <span>- {typeof i.item === 'string' ? i.item : JSON.stringify(i.item)}</span>
                             <SeverityBadge severity={i.severity} />
                         </li>
                     ))}

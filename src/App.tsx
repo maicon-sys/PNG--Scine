@@ -493,10 +493,17 @@ const App: React.FC = () => {
   
   const handleGenerateFinancials = async (section: PlanSection) => {
     if (!activeProject) return;
+
+    // FIX: Add guard clause to ensure strategic matrix is generated before financial projections.
+    const matrix = activeProject.currentData.contextState.strategicMatrix;
+    if (!matrix || matrix.generatedAt === 0) {
+      alert("Por favor, execute o Diagnóstico Global primeiro para gerar a Matriz Estratégica, que é necessária para as projeções financeiras.");
+      return;
+    }
+
     setIsGenerating(true);
     updateSection(section.id, { status: SectionStatus.GENERATING, validationFeedback: '' });
     try {
-      const matrix = activeProject.currentData.contextState.strategicMatrix;
       const { analysis, data } = await generateFinancialData(matrix);
       updateSection(section.id, { content: analysis, financialData: data, status: SectionStatus.DRAFT });
     } catch (e) {
@@ -873,7 +880,11 @@ const App: React.FC = () => {
                                 <AlertTriangle className="w-5 h-5 mr-3 mt-1 shrink-0" />
                                 <div>
                                     <h4 className="font-bold">Alerta de Revisão da IA</h4>
-                                    <p className="text-sm mt-1">{activeSection.validationFeedback}</p>
+                                    <p className="text-sm mt-1">
+                                        {typeof activeSection.validationFeedback === 'string'
+                                            ? activeSection.validationFeedback
+                                            : JSON.stringify(activeSection.validationFeedback)}
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -884,7 +895,11 @@ const App: React.FC = () => {
                                 <CheckCircle2 className="w-5 h-5 mr-3 mt-1 shrink-0" />
                                 <div>
                                     <h4 className="font-bold">Validado pela IA</h4>
-                                    <p className="text-sm mt-1">{activeSection.validationFeedback}</p>
+                                    <p className="text-sm mt-1">
+                                        {typeof activeSection.validationFeedback === 'string'
+                                            ? activeSection.validationFeedback
+                                            : JSON.stringify(activeSection.validationFeedback)}
+                                    </p>
                                 </div>
                             </div>
                         </div>

@@ -172,12 +172,13 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
             {/* Table of Contents */}
             <div className="page-a4 bg-white w-[210mm] h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 break-after-page">
                 <h2 className="text-2xl font-bold mb-6 text-black border-b border-black pb-2">Sumário</h2>
-                <div className="space-y-2">
+                {/* FIX: Make Table of Contents items clickable links */}
+                <div className="space-y-1">
                     {sortedSections.map(section => (
-                        <div key={`toc-${section.id}`} className="flex justify-between text-sm">
-                            <span className="text-gray-900 font-medium truncate pr-2">{section.id} {section.title}</span>
+                        <a href={`#section-preview-${section.id}`} key={`toc-${section.id}`} className="flex justify-between text-sm p-2 rounded-md hover:bg-gray-100 no-underline group">
+                            <span className="text-gray-900 font-medium truncate pr-2 group-hover:text-blue-600">{section.id} {section.title}</span>
                             <span className="border-b border-dotted border-gray-400 flex-grow mx-2 relative top-[-4px]"></span>
-                        </div>
+                        </a>
                     ))}
                 </div>
             </div>
@@ -195,7 +196,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
                                 </div>
                                 <div className="prose prose-slate max-w-none text-justify text-black">
                                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                        {section.content}
+                                        {typeof section.content === 'string' ? section.content : JSON.stringify(section.content)}
                                     </ReactMarkdown>
                                 </div>
                                 
