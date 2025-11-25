@@ -2,21 +2,21 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Project, User, PlanSection, SectionStatus, AppContextState, 
   StrategicMatrix, BusinessGoal, SectionType, AnalysisGap, DiagnosisResponse 
-} from './types';
+} from '../types';
 import { 
   INITIAL_SECTIONS, DEFAULT_STRATEGIC_MATRIX, DEFAULT_METHODOLOGY, 
   DIAGNOSIS_STEPS 
-} from './constants';
+} from '../constants';
 import { 
   runDiagnosisStep, generateSectionContent, validateCompletedSections 
-} from './services/gemini';
-import { Dashboard } from './components/Dashboard';
-import { AuthScreen } from './components/AuthScreen';
-import { ContextManager } from './components/ContextManager';
-import { StrategicMatrixViewer } from './components/StrategicMatrixViewer';
-import { LiveDocumentPreview } from './components/LiveDocumentPreview';
-import { FinancialChart } from './components/FinancialChart';
-import { SelectApiKeyModal } from './components/SelectApiKeyModal';
+} from '../services/gemini';
+import { Dashboard } from '../components/Dashboard';
+import { AuthScreen } from '../components/AuthScreen';
+import { ContextManager } from '../components/ContextManager';
+import { StrategicMatrixViewer } from '../components/StrategicMatrixViewer';
+import { LiveDocumentPreview } from '../components/LiveDocumentPreview';
+import { FinancialChart } from '../components/FinancialChart';
+import { SelectApiKeyModal } from '../components/SelectApiKeyModal';
 import { 
   LayoutDashboard, FileText, Settings, PlayCircle, 
   CheckCircle, AlertCircle, ChevronRight, Save, ArrowLeft, Loader2, Sparkles, BookOpen 
