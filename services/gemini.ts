@@ -2,94 +2,142 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, StrategicMatrix, AnalysisGap, BusinessGoal, DiagnosisStepResult, CanvasBlock, SwotBlock, MatrixItem } from "../types";
 import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
 
-// Helper to clean JSON string safely (State Machine Parser)
+// Helper to clean JSON string safely (State Machine Parser with Candidate Search)
 const cleanJsonString = (text: string): string => {
     if (!text) return "{}";
 
-    // 1. Locate the outermost JSON block
-    const firstOpen = text.indexOf('{');
-    const firstArray = text.indexOf('[');
-    let start = -1;
-    if (firstOpen > -1 && firstArray > -1) start = Math.min(firstOpen, firstArray);
-    else if (firstOpen > -1) start = firstOpen;
-    else if (firstArray > -1) start = firstArray;
+    // Internal function to sanitize a specific candidate string (remove comments/trailing commas)
+    const sanitizeCandidate = (jsonCandidate: string): string => {
+        let out = '';
+        let i = 0;
+        let inString = false;
+        let isEscaped = false;
 
-    if (start === -1) return "{}";
+        while (i < jsonCandidate.length) {
+            const char = jsonCandidate[i];
+            const next = jsonCandidate[i + 1] || '';
 
-    const lastClose = text.lastIndexOf('}');
-    const lastArray = text.lastIndexOf(']');
-    const end = Math.max(lastClose, lastArray);
-
-    if (end === -1 || end < start) return "{}";
-
-    const jsonCandidate = text.substring(start, end + 1);
-
-    // 2. Parser state machine to safely remove comments and trailing commas
-    let out = '';
-    let i = 0;
-    let inString = false;
-    let isEscaped = false;
-
-    while (i < jsonCandidate.length) {
-        const char = jsonCandidate[i];
-        const next = jsonCandidate[i + 1] || '';
-
-        if (inString) {
-            out += char;
-            if (isEscaped) {
-                isEscaped = false;
-            } else if (char === '\\') {
-                isEscaped = true;
-            } else if (char === '"') {
-                inString = false;
-            }
-            i++;
-            continue;
-        }
-
-        // Not in string
-        if (char === '"') {
-            inString = true;
-            out += char;
-            i++;
-            continue;
-        }
-
-        // Handle Single-line comments //
-        if (char === '/' && next === '/') {
-            i += 2;
-            // Skip until newline
-            while (i < jsonCandidate.length && jsonCandidate[i] !== '\n') i++;
-            continue; 
-        }
-
-        // Handle Block comments /* */
-        if (char === '/' && next === '*') {
-            i += 2;
-            // Skip until */
-            while (i < jsonCandidate.length && !(jsonCandidate[i] === '*' && jsonCandidate[i + 1] === '/')) i++;
-            i += 2; // skip the closing */
-            continue;
-        }
-
-        // Handle Trailing Commas
-        if (char === ',') {
-            // Look ahead for closing brace/bracket, skipping whitespace
-            let j = i + 1;
-            while (j < jsonCandidate.length && /\s/.test(jsonCandidate[j])) j++;
-            if (j < jsonCandidate.length && (jsonCandidate[j] === '}' || jsonCandidate[j] === ']')) {
-                // It is a trailing comma, skip it
+            if (inString) {
+                out += char;
+                if (isEscaped) {
+                    isEscaped = false;
+                } else if (char === '\\') {
+                    isEscaped = true;
+                } else if (char === '"') {
+                    inString = false;
+                }
                 i++;
                 continue;
             }
+
+            // Start string
+            if (char === '"') {
+                inString = true;
+                out += char;
+                i++;
+                continue;
+            }
+
+            // Remove Single-line comments //
+            if (char === '/' && next === '/') {
+                i += 2;
+                while (i < jsonCandidate.length && jsonCandidate[i] !== '\n') i++;
+                continue; 
+            }
+
+            // Remove Block comments /* */
+            if (char === '/' && next === '*') {
+                i += 2;
+                while (i < jsonCandidate.length && !(jsonCandidate[i] === '*' && jsonCandidate[i + 1] === '/')) i++;
+                i += 2;
+                continue;
+            }
+
+            // Remove Trailing Commas
+            if (char === ',') {
+                let j = i + 1;
+                while (j < jsonCandidate.length && /\s/.test(jsonCandidate[j])) j++;
+                if (j < jsonCandidate.length && (jsonCandidate[j] === '}' || jsonCandidate[j] === ']')) {
+                    i++;
+                    continue;
+                }
+            }
+
+            out += char;
+            i++;
+        }
+        return out;
+    };
+
+    // Main logic: Search for a valid JSON block
+    // We iterate through potential start positions ('{' or '[')
+    let startIndex = 0;
+    while (startIndex < text.length) {
+        const nextOpenBrace = text.indexOf('{', startIndex);
+        const nextOpenBracket = text.indexOf('[', startIndex);
+        let currentStart = -1;
+
+        // No more potential starts
+        if (nextOpenBrace === -1 && nextOpenBracket === -1) break;
+
+        // Determine which comes first
+        if (nextOpenBrace !== -1 && nextOpenBracket !== -1) {
+            currentStart = Math.min(nextOpenBrace, nextOpenBracket);
+        } else {
+            currentStart = nextOpenBrace !== -1 ? nextOpenBrace : nextOpenBracket;
         }
 
-        // Regular character
-        out += char;
-        i++;
+        // If this attempt fails, next search starts after this position
+        startIndex = currentStart + 1;
+
+        const startChar = text[currentStart];
+        const endChar = startChar === '{' ? '}' : ']';
+        
+        // Walk forward to find the matching closing brace, respecting strings/escapes
+        let depth = 0;
+        let inString = false;
+        let isEscaped = false;
+        let end = -1;
+
+        for (let i = currentStart; i < text.length; i++) {
+            const char = text[i];
+            
+            if (inString) {
+                if (isEscaped) isEscaped = false;
+                else if (char === '\\') isEscaped = true;
+                else if (char === '"') inString = false;
+            } else {
+                if (char === '"') {
+                    inString = true;
+                } else if (char === startChar) {
+                    depth++;
+                } else if (char === endChar) {
+                    depth--;
+                    if (depth === 0) {
+                        end = i;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (end !== -1) {
+            // We found a balanced block
+            const rawCandidate = text.substring(currentStart, end + 1);
+            const sanitized = sanitizeCandidate(rawCandidate);
+            
+            try {
+                // Check if it's valid JSON
+                JSON.parse(sanitized);
+                return sanitized; // Success!
+            } catch (e) {
+                // If it failed parsing (e.g. "{example}" is not valid JSON), continue loop to find next block
+                continue;
+            }
+        }
     }
 
-    return out;
+    return "{}";
 };
 
 // --- NEW 10-STEP DIAGNOSIS ENGINE ---
@@ -99,9 +147,7 @@ export const runDiagnosisStep = async (
     currentMatrix: StrategicMatrix
 ): Promise<DiagnosisStepResult> => {
     // Instantiate AI client before each call as per guidelines
-    const apiKey = import.meta.env.VITE_API_KEY;
-    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = "gemini-2.5-flash";
     const step = DIAGNOSIS_STEPS[stepIndex];
 
@@ -311,9 +357,7 @@ export const generateSectionContent = async (
     strategicMatrix: StrategicMatrix | undefined
 ): Promise<string> => {
     // Instantiate AI client before each call as per guidelines
-    const apiKey = import.meta.env.VITE_API_KEY;
-    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = "gemini-2.5-flash";
 
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz estratégica não disponível.";
@@ -400,9 +444,7 @@ export const fixSectionContentWithSearch = async (
     strategicMatrix: StrategicMatrix | undefined
 ): Promise<{ newContent: string; sources: { url: string; title: string }[] }> => {
     // Instantiate AI client before each call as per guidelines
-    const apiKey = import.meta.env.VITE_API_KEY;
-    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = "gemini-2.5-flash"; 
 
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz estratégica não disponível.";
@@ -470,9 +512,7 @@ export const generateFinancialData = async (
     strategicMatrix: StrategicMatrix | undefined
 ): Promise<{ analysis: string, data: FinancialYear[] }> => {
     // Instantiate AI client before each call as per guidelines
-    const apiKey = import.meta.env.VITE_API_KEY;
-    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = "gemini-2.5-flash";
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz de dados não disponível.";
     const prompt = `
@@ -501,9 +541,7 @@ export const generateFinancialData = async (
 
 export const generateProjectImage = async (promptDescription: string): Promise<string> => {
     // Instantiate AI client before each call as per guidelines
-    const apiKey = import.meta.env.VITE_API_KEY;
-    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
@@ -536,9 +574,7 @@ export const validateCompletedSections = async (
     goal: BusinessGoal
 ): Promise<{ sectionId: string; isValid: boolean; feedback: string }[]> => {
     // Instantiate AI client before each call as per guidelines
-    const apiKey = import.meta.env.VITE_API_KEY;
-    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = 'gemini-2.5-flash';
 
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz de dados não disponível.";

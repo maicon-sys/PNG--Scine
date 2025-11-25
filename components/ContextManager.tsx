@@ -1,79 +1,54 @@
 import React, { useState, useRef } from 'react';
-import { Upload, FileText, Trash2, Settings, Plus, Target, Loader2, ImageIcon, AlertCircle, CheckCircle2, Globe, Link } from 'lucide-react';
-import { AppContextState, UploadedFile, BusinessGoal, ProjectAsset } from '../types';
+import { Upload, FileText, Image as ImageIcon, Trash2, File, Loader2 } from 'lucide-react';
+import { AppContextState, UploadedFile, ProjectAsset } from '../types';
 
 interface ContextManagerProps {
   state: AppContextState;
-  onUpdate: (newState: Partial<AppContextState>) => void;
+  onUpdate: (updates: Partial<AppContextState>) => void;
 }
 
 export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    processFiles(Array.from(files));
-  };
-
-  const readPdfText = async (file: File): Promise<string> => {
-    // Wait for library to load if network is slow
-    const waitForLib = async () => {
-        let retries = 0;
-        while (!window.pdfjsLib && retries < 50) { // Wait up to 5 seconds
-            await new Promise(r => setTimeout(r, 100));
-            retries++;
-        }
-        if (!window.pdfjsLib) throw new Error("Biblioteca PDF não carregou. Verifique sua conexão.");
-    };
-
-    try {
-        await waitForLib();
-        const pdfjs = window.pdfjsLib;
-        
-        // Safety check for worker configuration
-        if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-            pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        }
-
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-        let fullText = "";
-        
-        for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const textContent = await page.getTextContent();
-            // Basic extraction: join items with space. 
-            // Note: complex layouts might need better heuristics, but this suffices for context injection.
-            const pageText = textContent.items.map((item: any) => item.str).join(" ");
-            fullText += `--- Página ${i} ---\n${pageText}\n\n`;
-        }
-        return fullText;
-    } catch (e) {
-        console.error("Erro ao ler PDF:", e);
-        throw new Error("Falha na leitura do PDF. A biblioteca pode não ter carregado ou o arquivo está corrompido.");
-    }
-  };
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const convertImageToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        resolve(result);
-      };
-      reader.onerror = reject;
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = error => reject(error);
       reader.readAsDataURL(file);
     });
+  };
+
+  const readPdfText = async (file: File): Promise<string> => {
+    if (!window.pdfjsLib) {
+      throw new Error("Biblioteca PDF.js não carregada.");
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = "";
+    
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      fullText += `\n--- Página ${i} ---\n${pageText}`;
+    }
+    return fullText;
   };
 
   const processFiles = async (files: File[]) => {
     setIsProcessing(true);
     const newFiles: UploadedFile[] = [];
     const newAssets: ProjectAsset[] = [];
+
+    // Whitelist de tipos de texto seguros
+    const isSafeTextFile = (file: File) => {
+        const safeTypes = ['text/plain', 'text/markdown', 'text/csv', 'application/json', 'text/x-markdown'];
+        const safeExtensions = /\.(txt|md|csv|json)$/i;
+        return safeTypes.includes(file.type) || safeExtensions.test(file.name);
+    };
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -97,22 +72,33 @@ export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate 
              type: 'image'
            });
 
-        } else {
-           let content = "";
-           if (file.type === "application/pdf") {
-             content = await readPdfText(file);
-           } else {
-             content = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onload = (e) => resolve(e.target?.result as string || "");
-                reader.readAsText(file);
+        } else if (file.type === "application/pdf") {
+           try {
+             const content = await readPdfText(file);
+             newFiles.push({
+               name: file.name,
+               content: content,
+               type: 'text'
              });
+           } catch (e) {
+             console.error(e);
+             alert(`Erro ao ler PDF ${file.name}. Certifique-se de que não está protegido por senha ou que o PDF.js está carregado.`);
            }
+
+        } else if (isSafeTextFile(file)) {
+           const content = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = (e) => resolve(e.target?.result as string || "");
+              reader.readAsText(file);
+           });
            newFiles.push({
              name: file.name,
              content: content,
              type: 'text'
            });
+        } else {
+            // Bloqueia DOCX, XLSX e outros binários não suportados
+            alert(`Arquivo não suportado: "${file.name}".\n\nO sistema aceita apenas:\n- PDFs (.pdf)\n- Imagens (.jpg, .png)\n- Texto Puro (.txt, .md, .csv, .json)\n\nPara arquivos Word (.docx) ou Excel (.xlsx), por favor, salve como PDF antes de enviar.`);
         }
       } catch (error) {
         console.error(`Erro ao ler arquivo ${file.name}:`, error);
@@ -126,182 +112,96 @@ export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate 
     });
     setIsProcessing(false);
     setProcessingStatus('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFiles(Array.from(e.target.files));
+    }
   };
 
   const removeFile = (index: number) => {
-    const newFiles = [...state.uploadedFiles];
-    newFiles.splice(index, 1);
-    onUpdate({ uploadedFiles: newFiles });
+    const fileToRemove = state.uploadedFiles[index];
+    const newFiles = state.uploadedFiles.filter((_, i) => i !== index);
+    
+    // If it was an image, try to remove associated asset
+    let newAssets = state.assets;
+    if (fileToRemove.type === 'image') {
+        newAssets = state.assets.filter(a => a.description !== fileToRemove.name);
+    }
+
+    onUpdate({ uploadedFiles: newFiles, assets: newAssets });
   };
-
-  const removeWebSource = (index: number) => {
-    const newSources = [...(state.webSources || [])];
-    newSources.splice(index, 1);
-    onUpdate({ webSources: newSources });
-  };
-
-  const fullContext = `
-OBJETIVO: ${state.businessGoal}
-METODOLOGIA: ${state.methodology}
-ANOTAÇÕES MANUAIS:
-${state.rawContext}
-CONTEÚDO DOS ARQUIVOS:
-${state.uploadedFiles.filter(f => f.type === 'text' && !f.isRestored).map(f => `--- ARQUIVO: ${f.name} ---\n${f.content}`).join('\n\n')}
-IMAGENS DISPONÍVEIS:
-${state.assets.map(a => `- ${a.description} (${a.type})`).join('\n')}
-  `;
-
-  const hasRestoredFiles = state.uploadedFiles.some(f => f.isRestored);
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-6">
-      
-      <div className="space-y-2">
-        <label className="flex items-center text-sm font-semibold text-gray-800 gap-2">
-          <Target className="w-4 h-4 text-blue-600" />
-          Objetivo do Plano de Negócios
-        </label>
-        <select
-          value={state.businessGoal}
-          onChange={(e) => onUpdate({ businessGoal: e.target.value as BusinessGoal })}
-          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white text-gray-900 font-medium"
-        >
-          <option value={BusinessGoal.GENERAL} className="text-gray-900">Estruturação Geral / Uso Interno</option>
-          <option value={BusinessGoal.INVESTORS} className="text-gray-900">Apresentação para Investidores (Equity)</option>
-          <option value={BusinessGoal.FINANCING_BRDE} className="text-gray-900">Solicitação de Financiamento BRDE / FSA (Inovação)</option>
-        </select>
-        {state.businessGoal === BusinessGoal.FINANCING_BRDE && (
-          <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg text-xs text-orange-900 font-medium">
-            <strong>Modo Ativado:</strong> A IA atuará como consultor do BRDE.
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <label className="flex items-center text-sm font-semibold text-gray-800 gap-2">
-          <Settings className="w-4 h-4 text-blue-600" />
-          Metodologia Aplicada
-        </label>
-        <input
-          type="text"
-          value={state.methodology}
-          onChange={(e) => onUpdate({ methodology: e.target.value })}
-          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all text-gray-900 font-medium"
-          placeholder="Ex: SEBRAE, Canvas..."
-        />
-      </div>
-
-      <div className="space-y-2">
-         <label className="flex items-center text-sm font-semibold text-gray-800 gap-2">
-          <Upload className="w-4 h-4 text-blue-600" />
-          Arquivos de Projeto (PDFs, Imagens, Textos)
-        </label>
+    <div className="space-y-6">
+      <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+        <h3 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
+            <Upload className="w-5 h-5 text-blue-600" /> Upload de Arquivos
+        </h3>
+        <p className="text-sm text-slate-500 mb-4">
+            Adicione PDFs, textos ou imagens para dar contexto à IA.
+        </p>
         
         <div 
-          className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer relative ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'}`}
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            processFiles(Array.from(e.dataTransfer.files));
-          }}
-          onClick={() => !isProcessing && fileInputRef.current?.click()}
+            onClick={() => fileInputRef.current?.click()}
+            className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center cursor-pointer hover:bg-slate-50 transition-colors"
         >
-          {isProcessing ? (
-             <div className="flex flex-col items-center justify-center text-blue-600">
-               <Loader2 className="w-8 h-8 mb-2 animate-spin" />
-               <p className="text-sm font-medium text-gray-900">{processingStatus}</p>
-             </div>
-          ) : (
-            <>
-              <input 
+            <input 
                 type="file" 
                 multiple 
-                accept=".pdf,.txt,.md,.csv,.json,.jpg,.jpeg,.png" 
                 ref={fileInputRef} 
                 className="hidden" 
-                onChange={handleFileUpload}
-              />
-              <div className="flex flex-col items-center justify-center text-gray-500">
-                <Plus className="w-8 h-8 mb-2 text-gray-400" />
-                <p className="text-sm font-medium text-gray-700">Arraste PDFs, Textos ou Imagens</p>
-                <p className="text-xs mt-1 text-gray-500">O sistema processa imagens e documentos de grande porte.</p>
-              </div>
-            </>
-          )}
-        </div>
-
-        {hasRestoredFiles && (
-            <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
-                <div className="text-sm text-yellow-800">
-                    <strong>Arquivos restaurados:</strong> Alguns arquivos foram restaurados da memória, mas seu conteúdo bruto foi removido para otimizar o sistema. 
-                    <br/>As seções já geradas estão salvas. Se precisar gerar <u>novas seções</u> usando esses arquivos, por favor, envie-os novamente.
+                onChange={handleFileChange}
+                accept=".pdf,.txt,.md,.csv,.json,image/*"
+            />
+            {isProcessing ? (
+                <div className="flex flex-col items-center text-blue-600">
+                    <Loader2 className="w-8 h-8 animate-spin mb-2" />
+                    <span className="text-sm font-medium">{processingStatus}</span>
                 </div>
+            ) : (
+                <div className="flex flex-col items-center text-slate-500">
+                    <Upload className="w-8 h-8 mb-2" />
+                    <span className="text-sm font-medium">Clique para selecionar arquivos</span>
+                    <span className="text-xs text-slate-400 mt-1">PDF, TXT, MD, CSV, JSON, PNG, JPG</span>
+                </div>
+            )}
+        </div>
+      </div>
+
+      {state.uploadedFiles.length > 0 && (
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+            <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-blue-600" /> Arquivos Processados ({state.uploadedFiles.length})
+            </h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                {state.uploadedFiles.map((file, index) => (
+                    <div key={index} className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-100 text-sm group">
+                        <div className="flex items-center gap-2 overflow-hidden">
+                            {file.type === 'image' ? <ImageIcon className="w-4 h-4 text-purple-500 flex-shrink-0" /> : <File className="w-4 h-4 text-slate-500 flex-shrink-0" />}
+                            <span className="truncate text-slate-700" title={file.name}>{file.name}</span>
+                            {file.isGenerated && <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded">Gerado</span>}
+                        </div>
+                        <button onClick={() => removeFile(index)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    </div>
+                ))}
             </div>
-        )}
-
-        {state.uploadedFiles.length > 0 && (
-          <div className="mt-4 space-y-2 max-h-40 overflow-y-auto">
-            {state.uploadedFiles.map((file, idx) => (
-              <div key={idx} className={`flex items-center justify-between p-2 rounded border text-sm ${file.isGenerated ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'}`}>
-                <div className="flex items-center gap-2 overflow-hidden">
-                  {file.isGenerated ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : (file.type === 'image' ? <ImageIcon className="w-4 h-4 text-purple-500" /> : <FileText className="w-4 h-4 text-gray-500" />)}
-                  <span className={`truncate ${file.isRestored ? 'text-gray-400 italic' : 'text-gray-900'} ${file.isGenerated ? 'font-medium text-green-900' : ''}`}>
-                      {file.name} {file.isRestored && '(Conteúdo não carregado)'}
-                  </span>
-                </div>
-                <button onClick={() => removeFile(idx)} className="text-red-500 hover:text-red-700 p-1 disabled:text-gray-400" disabled={file.isGenerated}>
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
           </div>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <label className="flex items-center text-sm font-semibold text-gray-800 gap-2">
-          <FileText className="w-4 h-4 text-blue-600" />
-          Anotações e Ideias Soltas
-        </label>
-        <textarea
-          value={state.rawContext}
-          onChange={(e) => onUpdate({ rawContext: e.target.value })}
-          className="w-full h-40 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all text-sm text-gray-900"
-          placeholder="Cole aqui rascunhos, ideias ou informações importantes..."
-        />
-      </div>
-
-      {state.webSources && state.webSources.length > 0 && (
-        <div className="space-y-2">
-          <label className="flex items-center text-sm font-semibold text-gray-800 gap-2">
-            <Globe className="w-4 h-4 text-blue-600" />
-            Fontes da Web (Coletadas pela IA)
-          </label>
-          <div className="mt-2 space-y-2 max-h-40 overflow-y-auto">
-            {(state.webSources || []).map((source, idx) => (
-              <div key={idx} className="flex items-center justify-between p-2 rounded border text-sm bg-blue-50 border-blue-200">
-                <div className="flex items-center gap-2 overflow-hidden">
-                  <Link className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                  <a href={source.url} target="_blank" rel="noopener noreferrer" className="truncate text-blue-800 hover:underline" title={source.url}>
-                    {source.title || new URL(source.url).hostname}
-                  </a>
-                </div>
-                <button onClick={() => removeWebSource(idx)} className="text-red-500 hover:text-red-700 p-1 flex-shrink-0">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
       )}
 
-      <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg">
-        <p className="text-xs text-blue-800 font-medium">
-          Caracteres consolidados para memória da IA: {fullContext.length.toLocaleString()}
-        </p>
+      <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+        <h3 className="font-bold text-slate-800 mb-2">Anotações de Contexto</h3>
+        <p className="text-xs text-slate-500 mb-2">Cole informações rápidas ou instruções aqui.</p>
+        <textarea
+            value={state.rawContext}
+            onChange={(e) => onUpdate({ rawContext: e.target.value })}
+            className="w-full h-32 p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="Ex: O cliente tem orçamento de 50k..."
+        />
       </div>
     </div>
   );
