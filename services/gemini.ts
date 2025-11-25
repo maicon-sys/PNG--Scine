@@ -399,7 +399,7 @@ export const generateSectionContent = async (
     }
 
     const prompt = `
-    ATUE COMO: Consultor Especialista em Planos de Negócios, com foco nos critérios do BRDE/FSA e na metodologia SEBRAE para o projeto SCine.
+    ATUE COMO: Consultor Especialista em Planos de Negócios, com foco nos critérios do BRDE/FSA e na metodologia "${methodology || 'SEBRAE'}" para o projeto SCine.
     OBJETIVO GERAL DO PLANO: ${goalContext}.
     
     FONTES DE DADOS DISPONÍVEIS:
