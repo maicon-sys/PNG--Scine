@@ -48,7 +48,6 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF('p', 'mm', 'a4');
       
-      // Use the html method with auto-paging
       await pdf.html(input, {
         callback: function (doc) {
           // Add page numbers
@@ -62,14 +61,23 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
           }
           doc.save(`${projectName.replace(/[\s/]/g, '_')}_Plano_de_Negocios.pdf`);
         },
-        margin: [20, 20, 20, 20], // margins in mm [top, right, bottom, left]
-        autoPaging: 'text', // Breaks pages on text nodes
+        margin: [20, 20, 20, 20],
+        autoPaging: 'text',
         html2canvas: {
-          scale: 0.26, // Adjust scale for quality vs. size. (210mm / ~800px)
+          scale: 0.26,
           useCORS: true,
           logging: false,
           windowWidth: input.scrollWidth,
-          windowHeight: input.scrollHeight
+          windowHeight: input.scrollHeight,
+          // FIX: Use onclone to modify the cloned document before rendering,
+          // ensuring that wide tables with horizontal scroll are fully captured.
+          onclone: (clonedDoc) => {
+            const tableWrappers = clonedDoc.querySelectorAll('.pdf-table-wrapper');
+            tableWrappers.forEach((wrapper: HTMLElement) => {
+                // Force the container to be visible and expand with the table content.
+                wrapper.style.overflow = 'visible';
+            });
+          },
         },
         pagebreak: { mode: 'css', before: '.break-before-page', after: '.break-after-page' }
       });
@@ -113,7 +121,9 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     p: ({...props}) => <p className="text-gray-900 leading-relaxed mb-4 text-justify" {...props} />,
     ul: ({...props}) => <ul className="list-disc list-inside mb-4 text-gray-900 pl-4" {...props} />,
     li: ({...props}) => <li className="mb-1" {...props} />,
-    table: ({...props}) => <div className="my-6 border border-gray-400"><table className="min-w-full divide-y divide-gray-400" {...props} /></div>,
+    // FIX: Add a specific class and overflow handling to table wrappers.
+    // This allows targeting them during PDF generation to fix capture issues.
+    table: ({...props}) => <div className="my-6 border border-gray-400 overflow-x-auto pdf-table-wrapper"><table className="min-w-full divide-y divide-gray-400" {...props} /></div>,
     thead: ({...props}) => <thead className="bg-gray-100" {...props} />,
     th: ({...props}) => <th className="px-4 py-2 text-left text-xs font-bold text-gray-900 uppercase tracking-wider border-r border-gray-300" {...props} />,
     td: ({...props}) => <td className="px-4 py-2 text-sm text-gray-900 border-t border-gray-300 border-r" {...props} />,
