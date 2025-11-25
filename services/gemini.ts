@@ -2,14 +2,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, StrategicMatrix, AnalysisGap, BusinessGoal, DiagnosisStepResult, CanvasBlock, SwotBlock, MatrixItem } from "../types";
 import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
 
-// Initialize the client
-const getAIClient = () => {
-    if (!process.env.API_KEY) {
-        throw new Error("API Key is missing. Please configure your environment.");
-    }
-    return new GoogleGenAI({ apiKey: process.env.API_KEY });
-};
-
 // Helper to clean JSON string from Markdown fences and other garbage
 const cleanJsonString = (text: string): string => {
     if (!text) return "{}";
@@ -60,7 +52,10 @@ export const runDiagnosisStep = async (
     fullContext: string,
     currentMatrix: StrategicMatrix
 ): Promise<DiagnosisStepResult> => {
-    const ai = getAIClient();
+    // Instantiate AI client before each call as per guidelines
+    const apiKey = import.meta.env.VITE_API_KEY;
+    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
+    const ai = new GoogleGenAI({ apiKey });
     const model = "gemini-2.5-flash";
     const step = DIAGNOSIS_STEPS[stepIndex];
 
@@ -269,7 +264,10 @@ export const generateSectionContent = async (
     childSectionsContent: string = "",
     strategicMatrix: StrategicMatrix | undefined
 ): Promise<string> => {
-    const ai = getAIClient();
+    // Instantiate AI client before each call as per guidelines
+    const apiKey = import.meta.env.VITE_API_KEY;
+    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
+    const ai = new GoogleGenAI({ apiKey });
     const model = "gemini-2.5-flash";
 
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz estratégica não disponível.";
@@ -355,7 +353,10 @@ export const fixSectionContentWithSearch = async (
     goalContext: string,
     strategicMatrix: StrategicMatrix | undefined
 ): Promise<{ newContent: string; sources: { url: string; title: string }[] }> => {
-    const ai = getAIClient();
+    // Instantiate AI client before each call as per guidelines
+    const apiKey = import.meta.env.VITE_API_KEY;
+    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
+    const ai = new GoogleGenAI({ apiKey });
     const model = "gemini-2.5-flash"; 
 
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz estratégica não disponível.";
@@ -422,7 +423,10 @@ export const fixSectionContentWithSearch = async (
 export const generateFinancialData = async (
     strategicMatrix: StrategicMatrix | undefined
 ): Promise<{ analysis: string, data: FinancialYear[] }> => {
-    const ai = getAIClient();
+    // Instantiate AI client before each call as per guidelines
+    const apiKey = import.meta.env.VITE_API_KEY;
+    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
+    const ai = new GoogleGenAI({ apiKey });
     const model = "gemini-2.5-flash";
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz de dados não disponível.";
     const prompt = `
@@ -450,7 +454,10 @@ export const generateFinancialData = async (
 };
 
 export const generateProjectImage = async (promptDescription: string): Promise<string> => {
-    const ai = getAIClient();
+    // Instantiate AI client before each call as per guidelines
+    const apiKey = import.meta.env.VITE_API_KEY;
+    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
+    const ai = new GoogleGenAI({ apiKey });
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
@@ -470,7 +477,10 @@ export const generateProjectImage = async (promptDescription: string): Promise<s
             }
         }
         throw new Error("Nenhuma imagem foi gerada.");
-    } catch (e) { console.error("Erro na geração de imagem:", e); throw e; }
+    } catch (e) { 
+        console.error("Erro na geração de imagem:", e); 
+        throw new Error("Falha ao gerar a imagem. Certifique-se de que sua API Key suporta geração de imagens e tente novamente."); 
+    }
 };
 
 export const validateCompletedSections = async (
@@ -479,7 +489,10 @@ export const validateCompletedSections = async (
     methodology: string,
     goal: BusinessGoal
 ): Promise<{ sectionId: string; isValid: boolean; feedback: string }[]> => {
-    const ai = getAIClient();
+    // Instantiate AI client before each call as per guidelines
+    const apiKey = import.meta.env.VITE_API_KEY;
+    if (!apiKey) throw new Error("API Key não configurada. Verifique suas variáveis de ambiente (VITE_API_KEY).");
+    const ai = new GoogleGenAI({ apiKey });
     const model = 'gemini-2.5-flash';
 
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz de dados não disponível.";

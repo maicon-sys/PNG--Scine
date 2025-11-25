@@ -8,17 +8,38 @@ interface StrategicMatrixViewerProps {
   isModalView?: boolean;
 }
 
-const SeverityBadge = ({ severity }: { severity: Severity }) => {
-    const severityMap = {
-        crítico: 'bg-red-100 text-red-800 border-red-200',
-        alto: 'bg-orange-100 text-orange-800 border-orange-200',
-        moderado: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-        baixo: 'bg-blue-100 text-blue-800 border-blue-200',
-        cosmético: 'bg-gray-100 text-gray-800 border-gray-200',
+const SeverityBadge = ({ severity }: { severity: Severity | any }) => {
+    // Sanitização rigorosa para evitar React Error #310 (Objects are not valid as a React child)
+    let safeSeverity: string;
+    
+    if (typeof severity === 'object' && severity !== null) {
+         // Se a IA alucinar e mandar um objeto (ex: { level: "high" }) ou array, stringificamos
+         safeSeverity = JSON.stringify(severity).replace(/["{}[\]]/g, ' ').trim(); 
+    } else if (severity === undefined || severity === null) {
+         safeSeverity = 'N/A';
+    } else {
+         safeSeverity = String(severity);
+    }
+    
+    const lowerSeverity = safeSeverity.toLowerCase().trim();
+
+    const severityMap: Record<string, string> = {
+        'crítico': 'bg-red-100 text-red-800 border-red-200',
+        'critical': 'bg-red-100 text-red-800 border-red-200', // Fallback inglês
+        'alto': 'bg-orange-100 text-orange-800 border-orange-200',
+        'high': 'bg-orange-100 text-orange-800 border-orange-200', // Fallback inglês
+        'moderado': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+        'moderate': 'bg-yellow-100 text-yellow-800 border-yellow-200', // Fallback inglês
+        'baixo': 'bg-blue-100 text-blue-800 border-blue-200',
+        'low': 'bg-blue-100 text-blue-800 border-blue-200', // Fallback inglês
+        'cosmético': 'bg-gray-100 text-gray-800 border-gray-200',
     };
+
+    const style = severityMap[lowerSeverity] || 'bg-gray-100 text-gray-800 border-gray-200';
+
     return (
-        <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${severityMap[severity] || 'bg-gray-100'}`}>
-            {severity}
+        <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${style}`}>
+            {safeSeverity}
         </span>
     );
 };

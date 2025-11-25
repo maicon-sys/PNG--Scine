@@ -5,7 +5,7 @@ import {
   Lock, RotateCcw, ArrowRightCircle, RefreshCw, Paperclip, TableProperties,
   LogOut, ArrowLeft, Cloud, CloudLightning, Stethoscope,
   History, AlertTriangle, Check, ShieldCheck, FileCode,
-  ChevronsLeft, ChevronsRight, X, ImageIcon, Award, Info
+  ChevronsLeft, ChevronsRight, X, ImageIcon, Award, Info, Key
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -21,6 +21,7 @@ import { AuthScreen } from '../components/AuthScreen';
 import { Dashboard } from '../components/Dashboard';
 import { LiveDocumentPreview } from '../components/LiveDocumentPreview';
 import { GoogleDriveIntegration } from '../components/GoogleDriveIntegration';
+import { SelectApiKeyModal } from '../components/SelectApiKeyModal';
 
 
 const STORAGE_KEY_PROJECTS = 'scine_saas_projects';
@@ -76,6 +77,11 @@ const App: React.FC = () => {
   const [isValidationLoading, setIsValidationLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+
+  // API Key Management State
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+  const [isApiKeySelectionOpen, setIsApiKeySelectionOpen] = useState<boolean>(false);
+
 
   // Edit Mode State
   const [isEditing, setIsEditing] = useState(false);
@@ -159,6 +165,23 @@ const App: React.FC = () => {
     }
   }, [activeSectionId]);
 
+  // API Key Management Effect
+  useEffect(() => {
+    const checkApiKey = async () => {
+      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+        const keyStatus = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(keyStatus);
+      } else {
+        // If not in AI Studio environment, assume API key is handled via other means (e.g. build process env)
+        // or that the environment variable VITE_API_KEY is available.
+        // For local development, VITE_API_KEY might be used.
+        // process.env IS NOT AVAILABLE IN VITE BROWSER ENVIRONMENT
+        setHasApiKey(!!import.meta.env.VITE_API_KEY); 
+      }
+    };
+    checkApiKey();
+  }, [isApiKeySelectionOpen]); // Re-check if modal was opened/closed
+
 
   // --- HANDLERS ---
   const handleLogin = useCallback((email: string, name: string) => {
@@ -210,7 +233,7 @@ const App: React.FC = () => {
   }, []);
 
   const getFullContext = useCallback((options: { includeCompleted?: boolean, maxLength?: number } = {}) => {
-    const { includeCompleted = true, maxLength = 100000 } = options;
+    const { includeCompleted = true, maxLength = 100000 } = options; // Default max length 100k
     if (!activeProject) return "";
     const { contextState } = activeProject.currentData;
     
@@ -229,6 +252,7 @@ const App: React.FC = () => {
 
     let fullContextString = `OBJETIVO: ${contextState.businessGoal}\nMETODOLOGIA: ${contextState.methodology}\nANOTAÇÕES: ${contextState.rawContext}\nARQUIVOS DO USUÁRIO: ${userUploadedFiles.map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n')}${webSourcesContent}${truthSourceContext}`;
   
+    // Truncate context if it exceeds maxLength
     if (maxLength && fullContextString.length > maxLength) {
         const truncationMessage = "\n\n... (contexto truncado por tamanho excessivo)";
         return fullContextString.substring(0, maxLength - truncationMessage.length) + truncationMessage;
@@ -239,6 +263,11 @@ const App: React.FC = () => {
   
  const handleRunDiagnosis = useCallback(async () => {
     if (!activeProject) return;
+
+    if (!hasApiKey && window.aistudio) {
+      setIsApiKeySelectionOpen(true);
+      return;
+    }
 
     setIsDiagnosisRunning(true);
     setCurrentDiagnosisStep(0);
@@ -283,70 +312,80 @@ const App: React.FC = () => {
         setCurrentDiagnosisStep(i);
         setDiagnosisProgress((i / DIAGNOSIS_STEPS.length) * 100);
         
-        const stepResult = await runDiagnosisStep(i, getFullContext({ maxLength: 100000 }), currentMatrix);
-        
-        if (Array.isArray(stepResult.logs)) {
-            const sanitizedLogs = stepResult.logs.map(log => 
-                typeof log === 'string' ? log : `[LOG INVÁLIDO]: ${JSON.stringify(log)}`
-            );
-            setDiagnosisLogs(prev => [...prev, ...sanitizedLogs]);
-        }
-        
-        if (stepResult.matrixUpdate) {
-            currentMatrix = produce(currentMatrix, draft => {
-                for (const key in stepResult.matrixUpdate) {
-                    const typedKey = key as keyof StrategicMatrix;
-                    const updateValue = (stepResult.matrixUpdate as any)[typedKey];
+        try {
+            const stepResult = await runDiagnosisStep(i, getFullContext({ maxLength: 100000 }), currentMatrix);
+            
+            if (Array.isArray(stepResult.logs)) {
+                const sanitizedLogs = stepResult.logs.map(log => 
+                    typeof log === 'string' ? log : `[LOG INVÁLIDO]: ${JSON.stringify(log)}`
+                );
+                setDiagnosisLogs(prev => [...prev, ...sanitizedLogs]);
+            }
+            
+            if (stepResult.matrixUpdate) {
+                currentMatrix = produce(currentMatrix, draft => {
+                    for (const key in stepResult.matrixUpdate) {
+                        const typedKey = key as keyof StrategicMatrix;
+                        const updateValue = (stepResult.matrixUpdate as any)[typedKey];
 
-                    if (!updateValue) continue;
+                        if (!updateValue) continue;
 
-                    if (typedKey === 'swot' && typeof updateValue === 'object') {
-                        draft.swot = { ...draft.swot, ...updateValue };
-                    } else if (typedKey !== 'generatedAt') {
-                        const draftBlock = (draft as any)[typedKey];
-                        if (draftBlock && typeof draftBlock === 'object' && typeof updateValue === 'object') {
-                            (draft as any)[typedKey] = { ...draftBlock, ...updateValue };
-                        } else {
-                            (draft as any)[typedKey] = updateValue;
+                        if (typedKey === 'swot' && typeof updateValue === 'object') {
+                            draft.swot = { ...draft.swot, ...updateValue };
+                        } else if (typedKey !== 'generatedAt') {
+                            const draftBlock = (draft as any)[typedKey];
+                            if (draftBlock && typeof draftBlock === 'object' && typeof updateValue === 'object') {
+                                (draft as any)[typedKey] = { ...draftBlock, ...updateValue };
+                            } else {
+                                (draft as any)[typedKey] = updateValue;
+                            }
                         }
                     }
+                });
+                setProjectData(activeProject.id, { 
+                    contextState: { ...activeProject.currentData.contextState, strategicMatrix: currentMatrix }
+                });
+            }
+            
+            
+            if (i === DIAGNOSIS_STEPS.length - 1 && stepResult.finalDiagnosis && typeof stepResult.finalDiagnosis === 'object') {
+                const timestamp = Date.now();
+                const gapsFromApi = stepResult.finalDiagnosis?.gaps;
+                let finalGaps: AnalysisGap[] = [];
+                
+                if (Array.isArray(gapsFromApi)) {
+                    finalGaps = gapsFromApi
+                    .filter((g): g is Omit<AnalysisGap, 'createdAt' | 'updatedAt' | 'resolvedAt' | 'status' | 'resolutionScore'> => !!g && typeof g === 'object')
+                    .map((g) => ({
+                        ...g,
+                        id: g.id || `gap_${timestamp}_${Math.random()}`,
+                        status: 'OPEN',
+                        resolutionScore: 0,
+                        aiFeedback: "Nenhum feedback inicial.", // Default value
+                        severityLevel: g.severityLevel || 'C', // Default to 'C'
+                        createdAt: timestamp,
+                        updatedAt: timestamp,
+                    }));
                 }
-            });
-            setProjectData(activeProject.id, { 
-                contextState: { ...activeProject.currentData.contextState, strategicMatrix: currentMatrix }
-            });
-        }
-        
-        
-        if (i === DIAGNOSIS_STEPS.length - 1 && stepResult.finalDiagnosis && typeof stepResult.finalDiagnosis === 'object') {
-             const timestamp = Date.now();
-             const gapsFromApi = stepResult.finalDiagnosis?.gaps;
-             let finalGaps: AnalysisGap[] = [];
-             
-             if (Array.isArray(gapsFromApi)) {
-                finalGaps = gapsFromApi
-                .filter((g): g is Omit<AnalysisGap, 'createdAt' | 'updatedAt' | 'resolvedAt' | 'status' | 'resolutionScore'> => !!g && typeof g === 'object')
-                .map((g) => ({
-                    ...g,
-                    id: g.id || `gap_${timestamp}_${Math.random()}`,
-                    status: 'OPEN',
-                    resolutionScore: 0,
-                    createdAt: timestamp,
-                    updatedAt: timestamp,
-                }));
-             }
 
-            const finalDiagnosis: DiagnosisResponse = {
-                timestamp,
-                projectSummary: "Diagnóstico completo de 10 etapas concluído.",
-                overallReadiness: stepResult.finalDiagnosis.overallReadiness || 0,
-                gaps: finalGaps,
-                strategicPaths: [],
-                suggestedSections: []
-            };
-            setProjectData(activeProject.id, { 
-                diagnosisHistory: [...activeProject.currentData.diagnosisHistory, finalDiagnosis] 
-            });
+                const finalDiagnosis: DiagnosisResponse = {
+                    timestamp,
+                    projectSummary: "Diagnóstico completo de 10 etapas concluído.",
+                    overallReadiness: stepResult.finalDiagnosis.overallReadiness || 0,
+                    gaps: finalGaps,
+                    strategicPaths: [],
+                    suggestedSections: []
+                };
+                setProjectData(activeProject.id, { 
+                    diagnosisHistory: [...activeProject.currentData.diagnosisHistory, finalDiagnosis] 
+                });
+            }
+        } catch (error) {
+            const errorMessage = (error instanceof Error) ? error.message : String(error);
+            setDiagnosisLogs(prev => [...prev, `[ERRO NA ETAPA ${i + 1}]: ${errorMessage}`]);
+            alert(`Erro crítico na etapa de diagnóstico ${i + 1}. Verifique o console para detalhes.`);
+            setIsDiagnosisRunning(false);
+            return; // Stop diagnosis on critical error
         }
 
         await new Promise(resolve => setTimeout(resolve, 2500));
@@ -355,10 +394,15 @@ const App: React.FC = () => {
     setDiagnosisProgress(100);
     setIsDiagnosisRunning(false);
 
-  }, [activeProject, getFullContext, setProjectData]);
+  }, [activeProject, getFullContext, setProjectData, hasApiKey, setIsApiKeySelectionOpen]);
 
     const handleValidateProject = async () => {
         if (!activeProject) return;
+
+        if (!hasApiKey && window.aistudio) {
+            setIsApiKeySelectionOpen(true);
+            return;
+        }
 
         const sectionsToValidate = activeProject.currentData.sections
             .filter(s => s.status === SectionStatus.COMPLETED)
@@ -411,6 +455,11 @@ const App: React.FC = () => {
   const handleGenerateSection = async (section: PlanSection) => {
       if (!activeProject) return;
 
+      if (!hasApiKey && window.aistudio) {
+        setIsApiKeySelectionOpen(true);
+        return;
+      }
+
       const matrix = activeProject.currentData.contextState.strategicMatrix;
       if (!matrix || matrix.generatedAt === 0) {
         alert("Por favor, execute o Diagnóstico Global primeiro para gerar a Matriz Estratégica, que é necessária para embasar o conteúdo das seções.");
@@ -436,6 +485,12 @@ const App: React.FC = () => {
 
   const handleFixSection = async (section: PlanSection) => {
     if (!activeProject || !section.validationFeedback) return;
+
+    if (!hasApiKey && window.aistudio) {
+        setIsApiKeySelectionOpen(true);
+        return;
+    }
+
     setIsGenerating(true);
     updateSection(section.id, { status: SectionStatus.GENERATING });
     try {
@@ -486,6 +541,12 @@ const App: React.FC = () => {
 
   const handleRefineSection = async (section: PlanSection) => {
     if (!activeProject || !refinementInput.trim()) return;
+
+    if (!hasApiKey && window.aistudio) {
+        setIsApiKeySelectionOpen(true);
+        return;
+    }
+
     setIsGenerating(true);
     updateSection(section.id, { status: SectionStatus.GENERATING, validationFeedback: '' });
     try {
@@ -508,7 +569,11 @@ const App: React.FC = () => {
   const handleGenerateFinancials = async (section: PlanSection) => {
     if (!activeProject) return;
 
-    // FIX: Add guard clause to ensure strategic matrix is generated before financial projections.
+    if (!hasApiKey && window.aistudio) {
+        setIsApiKeySelectionOpen(true);
+        return;
+    }
+
     const matrix = activeProject.currentData.contextState.strategicMatrix;
     if (!matrix || matrix.generatedAt === 0) {
       alert("Por favor, execute o Diagnóstico Global primeiro para gerar a Matriz Estratégica, que é necessária para as projeções financeiras.");
@@ -531,6 +596,11 @@ const App: React.FC = () => {
 
   const handleGenerateImageForSection = async (section: PlanSection) => {
     if (!activeProject) return;
+
+    if (!hasApiKey && window.aistudio) {
+        setIsApiKeySelectionOpen(true);
+        return;
+    }
 
     const confirmation = confirm(`Deseja gerar uma imagem ilustrativa para a seção "${section.title}"? Isso consumirá recursos da IA.`);
     if (!confirmation) return;
@@ -559,7 +629,7 @@ const App: React.FC = () => {
 
     } catch (error) {
         console.error("Image generation failed:", error);
-        alert("Falha ao gerar a imagem. Verifique o console para mais detalhes.");
+        alert("Falha ao gerar a imagem. Verifique o console para mais detalhes. Certifique-se de que sua API Key está configurada e suporta geração de imagens.");
     } finally {
         setIsGeneratingImage(false);
     }
@@ -585,6 +655,11 @@ const App: React.FC = () => {
 
     const handleApproveSection = useCallback(async (sectionId: string) => {
         if (!activeProject) return;
+
+        if (!hasApiKey && window.aistudio) {
+            setIsApiKeySelectionOpen(true);
+            return;
+        }
 
         const sections = activeProject.currentData.sections;
         const currentIndex = sections.findIndex(s => s.id === sectionId);
@@ -629,10 +704,14 @@ const App: React.FC = () => {
             await new Promise(resolve => setTimeout(resolve, 1000));
 
             try {
-                const tempContextState = newContextState;
+                // This context generation must reflect the *new* state, including the freshly approved section.
+                const tempContextState = {
+                    ...activeProject.currentData.contextState,
+                    uploadedFiles: newUploadedFiles,
+                };
                 const userUploadedFiles = tempContextState.uploadedFiles.filter(f => !f.isGenerated && f.type === 'text' && f.content && !f.isRestored);
                 const truthSourceContent = tempContextState.uploadedFiles.filter(f => f.isGenerated && f.type === 'text' && f.content);
-                const webSourcesContent = Array.isArray(tempContextState.webSources)
+                const webSourcesContent = Array.isArray(tempContextState.webSources) && tempContextState.webSources.length > 0
                     ? `\n\n--- FONTES DA VERDADE (FONTES DA WEB ENCONTRADAS PELA IA) ---\n${tempContextState.webSources.map(s => `FONTE: ${s.title}\nURL: ${s.url}`).join('\n')}`
                     : "";
                 const truthSourceContext = truthSourceContent.length > 0
@@ -661,7 +740,7 @@ const App: React.FC = () => {
                 setIsGenerating(false);
             }
         }
-    }, [activeProject, setProjectData, updateSection]);
+    }, [activeProject, setProjectData, updateSection, hasApiKey, setIsApiKeySelectionOpen]);
 
   // --- RENDER ---
   if (currentView === 'auth' || !currentUser) return <AuthScreen onLogin={handleLogin} />;
@@ -724,7 +803,14 @@ const App: React.FC = () => {
     let mainActionButton;
     if (activeSection) {
         const isActionDisabled = isGenerating || isEditing || activeSection.status === SectionStatus.APPROVED;
-        if (activeSection.status === SectionStatus.REVIEW_ALERT) {
+        if (activeSection.type === SectionType.FINANCIAL) {
+             mainActionButton = (
+                <button onClick={() => handleGenerateFinancials(activeSection)} disabled={isActionDisabled || isGenerating} className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-slate-300 shadow-sm hover:shadow-md">
+                    {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wand2 className="w-5 h-5" />}
+                    {activeSection.content ? 'Regerar Análise Financeira' : 'Gerar Análise Financeira'}
+                </button>
+            );
+        } else if (activeSection.status === SectionStatus.REVIEW_ALERT) {
             mainActionButton = (
                 <button onClick={() => handleFixSection(activeSection)} disabled={isActionDisabled} className="flex items-center gap-2 px-6 py-3 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors disabled:bg-slate-300 shadow-sm hover:shadow-md">
                     {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
@@ -780,6 +866,16 @@ const App: React.FC = () => {
             />
         )}
 
+        {isApiKeySelectionOpen && (
+            <SelectApiKeyModal 
+                onClose={() => setIsApiKeySelectionOpen(false)} 
+                onApiKeySelected={() => { 
+                    setHasApiKey(true); 
+                    setIsApiKeySelectionOpen(false); 
+                }}
+            />
+        )}
+
       {/* Header */}
       <header className="flex-shrink-0 bg-white h-16 border-b border-slate-200 flex items-center justify-between px-6 z-20">
         <div className="flex items-center gap-4">
@@ -794,6 +890,15 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+            {!hasApiKey && window.aistudio && (
+                <button 
+                    onClick={() => setIsApiKeySelectionOpen(true)}
+                    className="px-4 py-2 text-sm font-semibold text-red-700 bg-red-100 border border-red-200 rounded-lg hover:bg-red-200 transition-colors flex items-center gap-2"
+                    title="API Key ausente. Clique para selecionar."
+                >
+                    <Key className="w-4 h-4" /> Configurar API Key
+                </button>
+            )}
             <button 
                 onClick={() => setCurrentView('preview')}
                 className="px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-2"
@@ -921,10 +1026,7 @@ const App: React.FC = () => {
 
                     {activeSection.type === SectionType.FINANCIAL ? (
                         <div>
-                             <button onClick={() => handleGenerateFinancials(activeSection)} disabled={isGenerating} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-slate-300">
-                                {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wand2 className="w-5 h-5" />}
-                                {activeSection.content ? 'Regerar Análise Financeira' : 'Gerar Análise Financeira'}
-                            </button>
+                             {mainActionButton}
                             {activeSection.content && (
                                 <div className="mt-6 bg-white p-6 rounded-lg border border-slate-200 prose max-w-none">
                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{typeof activeSection.content === 'string' ? activeSection.content : JSON.stringify(activeSection.content)}</ReactMarkdown>
@@ -1061,7 +1163,7 @@ const App: React.FC = () => {
                             </div>
                             {diagnosisLogs.map((log, index) => (
                                 <p key={index} className="text-xs text-slate-300 font-mono animate-in fade-in duration-500">
-                                    <span className="text-green-500 mr-2">&gt;</span>{log}
+                                    <span className="text-green-500 mr-2">&gt;</span>{typeof log === 'string' ? log : JSON.stringify(log)}
                                 </p>
                             ))}
                         </div>
