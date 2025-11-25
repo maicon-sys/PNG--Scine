@@ -210,6 +210,7 @@ export interface ProjectVersion {
 
 export interface Project {
   id: string;
+  userId: string; // FIX: Associates project with a user
   name: string;
   createdAt: number;
   updatedAt: number;

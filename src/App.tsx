@@ -23,7 +23,9 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
-// FIX: Removed redundant global type definition. It is now centralized in `types.ts`.
+// FIX: Adiciona chaves de armazenamento para persistência de dados.
+const STORAGE_KEY_USER = 'strategia-ai-user';
+const STORAGE_KEY_PROJECTS = 'strategia-ai-projects';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -49,9 +51,41 @@ const App: React.FC = () => {
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
   const activeSection = activeProject?.currentData.sections.find(s => s.id === selectedSectionId);
 
+  // --- DATA PERSISTENCE ---
   useEffect(() => {
     checkApiKey();
+    // Carrega a sessão do usuário e seus projetos ao iniciar.
+    const storedUser = localStorage.getItem(STORAGE_KEY_USER);
+    if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        setUser(parsedUser);
+        
+        // FIX: Carrega apenas projetos pertencentes ao usuário logado.
+        const allProjects: Project[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PROJECTS) || '[]');
+        setProjects(allProjects.filter(p => p.userId === parsedUser.id));
+    }
   }, []);
+
+  useEffect(() => {
+    // Salva o usuário no localStorage sempre que ele mudar.
+    if (user) {
+        localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+    } else {
+        localStorage.removeItem(STORAGE_KEY_USER);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    // Salva os projetos, garantindo segurança para múltiplos usuários no mesmo navegador.
+    if (!user) return;
+    
+    const allProjects: Project[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PROJECTS) || '[]');
+    const otherUserProjects = allProjects.filter(p => p.userId !== user.id);
+    const updatedAllProjects = [...otherUserProjects, ...projects];
+    localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(updatedAllProjects));
+
+  }, [projects, user]);
+  // --- END OF DATA PERSISTENCE ---
 
   useEffect(() => {
     if (activeSection) {
@@ -60,28 +94,41 @@ const App: React.FC = () => {
   }, [activeSection]);
 
   const checkApiKey = async () => {
-    // FIX: Removed 'as any' cast due to global type definition.
     if (window.aistudio) {
       const hasKey = await window.aistudio.hasSelectedApiKey();
       setHasApiKey(hasKey);
     } else {
-      // Fallback for environment without aistudio wrapper, assuming process.env is injected
       setHasApiKey(true); 
     }
   };
 
   const handleLogin = (email: string, name: string) => {
-    setUser({ id: '1', email, name, avatar: '' });
+    const newUser = { id: email, email, name, avatar: '' }; // Usando email como ID único
+    setUser(newUser);
+
+    // FIX: Garante que, ao logar, apenas os projetos do novo usuário sejam carregados.
+    const allProjects: Project[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PROJECTS) || '[]');
+    setProjects(allProjects.filter(p => p.userId === newUser.id));
+    setActiveProjectId(null); // Limpa projeto ativo ao trocar de usuário
   };
 
   const handleLogout = () => {
     setUser(null);
     setActiveProjectId(null);
+    setProjects([]); // Limpa os projetos do estado da aplicação
+
+    // FIX: Remove os dados do usuário E os projetos do localStorage,
+    // garantindo que o próximo usuário comece com um ambiente limpo.
+    localStorage.removeItem(STORAGE_KEY_USER);
+    localStorage.removeItem(STORAGE_KEY_PROJECTS);
   };
 
   const handleCreateProject = (name: string) => {
+    if (!user) return; // Proteção para garantir que há um usuário logado
+
     const newProject: Project = {
       id: Math.random().toString(36).substring(7),
+      userId: user.id, // FIX: Associa o projeto ao usuário atual
       name,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -104,8 +151,6 @@ const App: React.FC = () => {
   };
 
   const handleDeleteProject = (id: string) => {
-    // FIX: Garante que o activeProjectId seja limpo se o projeto ativo for deletado,
-    // prevenindo um "estado zumbi" onde a UI tenta renderizar um projeto inexistente.
     if (activeProjectId === id) {
       setActiveProjectId(null);
     }
@@ -159,21 +204,17 @@ const App: React.FC = () => {
     
     let cutIndex = maxLength;
     
-    // Tenta encontrar um ponto de corte seguro retrocedendo a partir do limite máximo.
     while (cutIndex > 0) {
-        // Passo 1: Encontrar o limite de palavra anterior (espaço ou nova linha).
         const lastSpace = context.lastIndexOf(' ', cutIndex - 1);
         const lastNewline = context.lastIndexOf('\n', cutIndex - 1);
         const potentialCutIndex = Math.max(lastSpace, lastNewline);
 
         if (potentialCutIndex === -1) {
-            // Se não encontrar limite de palavra, não é possível truncar de forma inteligente.
             break; 
         }
         
         cutIndex = potentialCutIndex;
 
-        // Passo 2: Verificar se o contexto até este ponto tem chaves/colchetes balanceados.
         const sub = context.substring(0, cutIndex);
         let braceDepth = 0;
         let bracketDepth = 0;
@@ -181,7 +222,6 @@ const App: React.FC = () => {
 
         for (const char of sub) {
             if (char === '"') {
-                // Verificação simples de string, sem tratamento de escapes.
                 inString = !inString;
             } else if (!inString) {
                 if (char === '{') braceDepth++;
@@ -191,14 +231,11 @@ const App: React.FC = () => {
             }
         }
 
-        // Passo 3: Se estiver balanceado (profundidade não positiva), encontramos um bom ponto.
         if (braceDepth <= 0 && bracketDepth <= 0) {
             return context.substring(0, cutIndex) + `\n\n... (AVISO: O contexto era muito longo e foi truncado de forma segura para ${cutIndex} caracteres para caber no limite de ${maxLength}. A análise se baseará nestes dados.)`;
         }
-        // Se não estiver balanceado, o loop continua do `cutIndex` anterior.
     }
 
-    // Fallback: Se nenhum ponto seguro for encontrado, realiza um corte abrupto no limite original.
     return context.substring(0, maxLength) + `\n\n... (AVISO: O contexto excedeu ${maxLength} caracteres e foi cortado abruptamente. AVISO: A estrutura de dados no final (ex: JSON) pode estar corrompida, o que pode afetar a análise da IA.)`;
   };
 
@@ -206,12 +243,10 @@ const App: React.FC = () => {
     if (!activeProject) return;
 
     if (!hasApiKey) {
-      // FIX: Removed 'as any' cast due to global type definition.
       if (window.aistudio) {
         setIsApiKeySelectionOpen(true);
         return;
       }
-      // If not in aistudio, we assume key is not set.
       alert("API Key necessária para diagnóstico.");
       return;
     }
@@ -281,7 +316,6 @@ const App: React.FC = () => {
       if (!activeProject) return;
 
       if (!hasApiKey) {
-        // FIX: Removed 'as any' cast due to global type definition.
         if (window.aistudio) {
           setIsApiKeySelectionOpen(true);
           return;
