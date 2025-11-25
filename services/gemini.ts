@@ -34,14 +34,21 @@ const cleanJsonString = (text: string): string => {
 
     let jsonString = text.substring(actualStartIndex, actualEndIndex + 1);
 
-    // Remove comments, which are not valid in JSON but can be returned by the LLM
+    // Remove comments (block and line)
+    // Be careful: this regex might be aggressive if inside strings, but for standard JSON output from AI it's usually fine.
+    // Ideally, comment stripping should also respect strings, but this is a secondary cleanup.
     jsonString = jsonString.replace(/\/\*[\s\S]*?\*\/|([^:]|^)\/\/.*$/gm, '$1');
 
-    // Remove trailing commas, which are a common LLM error.
-    // This regex finds a comma, followed by optional whitespace, and then a closing brace or bracket.
-    // It replaces the comma and whitespace with just the closing delimiter.
-    jsonString = jsonString.replace(/,\s*([}\]])/g, '$1');
-
+    // Safe trailing comma removal:
+    // This regex matches either a double-quoted string (Group 1) OR a trailing comma pattern (Group 2).
+    // If Group 1 matches, we return it as is (preserving content).
+    // If Group 2 matches (comma followed by whitespace and closing bracket), we return just the closing bracket.
+    jsonString = jsonString.replace(/("[^"\\]*(?:\\.[^"\\]*)*")|,\s*([\]}])/g, (match, stringGroup, closingGroup) => {
+        if (stringGroup) {
+            return stringGroup; // It's a string, preserve it completely
+        }
+        return closingGroup; // It's a trailing comma, remove the comma (return just ] or })
+    });
 
     return jsonString;
 };
