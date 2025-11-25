@@ -209,7 +209,8 @@ const App: React.FC = () => {
     setProjects(prev => prev.filter(p => p.id !== id));
   }, []);
 
-  const getFullContext = useCallback((includeCompleted = true) => {
+  const getFullContext = useCallback((options: { includeCompleted?: boolean, maxLength?: number } = {}) => {
+    const { includeCompleted = true, maxLength = 100000 } = options;
     if (!activeProject) return "";
     const { contextState } = activeProject.currentData;
     
@@ -226,7 +227,14 @@ const App: React.FC = () => {
         ? `\n\n--- FONTES DA VERDADE (SEÇÕES CONCLUÍDAS E APROVADAS PELO USUÁRIO) ---\n${completedSectionsContent.map(f => `CONTEÚDO DE: ${f.name.replace('[CONCLUÍDO] ', '').replace('[APROVADO] ', '')}\n${f.content}`).join('\n\n')}`
         : "";
 
-    return `OBJETIVO: ${contextState.businessGoal}\nMETODOLOGIA: ${contextState.methodology}\nANOTAÇÕES: ${contextState.rawContext}\nARQUIVOS DO USUÁRIO: ${userUploadedFiles.map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n')}${webSourcesContent}${truthSourceContext}`;
+    let fullContextString = `OBJETIVO: ${contextState.businessGoal}\nMETODOLOGIA: ${contextState.methodology}\nANOTAÇÕES: ${contextState.rawContext}\nARQUIVOS DO USUÁRIO: ${userUploadedFiles.map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n')}${webSourcesContent}${truthSourceContext}`;
+  
+    if (maxLength && fullContextString.length > maxLength) {
+        const truncationMessage = "\n\n... (contexto truncado por tamanho excessivo)";
+        return fullContextString.substring(0, maxLength - truncationMessage.length) + truncationMessage;
+    }
+
+    return fullContextString;
   }, [activeProject]);
   
  const handleRunDiagnosis = useCallback(async () => {
@@ -237,7 +245,7 @@ const App: React.FC = () => {
     setDiagnosisProgress(0);
     setDiagnosisLogs([]);
 
-    const initialContext = getFullContext(false);
+    const initialContext = getFullContext({ includeCompleted: false, maxLength: 100000 });
     const isContextEmpty = !initialContext.replace(/OBJETIVO:.*/, '').replace(/METODOLOGIA:.*/, '').trim();
 
     if (isContextEmpty) {
@@ -275,7 +283,7 @@ const App: React.FC = () => {
         setCurrentDiagnosisStep(i);
         setDiagnosisProgress((i / DIAGNOSIS_STEPS.length) * 100);
         
-        const stepResult = await runDiagnosisStep(i, getFullContext(), currentMatrix);
+        const stepResult = await runDiagnosisStep(i, getFullContext({ maxLength: 100000 }), currentMatrix);
         
         if (Array.isArray(stepResult.logs)) {
             const sanitizedLogs = stepResult.logs.map(log => 
@@ -402,12 +410,18 @@ const App: React.FC = () => {
 
   const handleGenerateSection = async (section: PlanSection) => {
       if (!activeProject) return;
+
+      const matrix = activeProject.currentData.contextState.strategicMatrix;
+      if (!matrix || matrix.generatedAt === 0) {
+        alert("Por favor, execute o Diagnóstico Global primeiro para gerar a Matriz Estratégica, que é necessária para embasar o conteúdo das seções.");
+        return;
+      }
+
       setIsGenerating(true);
       updateSection(section.id, { status: SectionStatus.GENERATING, validationFeedback: '' });
       try {
-        const context = getFullContext();
+        const context = getFullContext({ maxLength: 100000 });
         const goal = activeProject.currentData.contextState.businessGoal;
-        const matrix = activeProject.currentData.contextState.strategicMatrix;
         const newContent = await generateSectionContent(section.title, section.description, '', context, goal, '', '', section.content, '', '', '', matrix);
         updateSection(section.id, { content: newContent, status: SectionStatus.DRAFT });
         setEditedContent(newContent);
@@ -425,7 +439,7 @@ const App: React.FC = () => {
     setIsGenerating(true);
     updateSection(section.id, { status: SectionStatus.GENERATING });
     try {
-      const context = getFullContext();
+      const context = getFullContext({ maxLength: 100000 });
       const { businessGoal, methodology, strategicMatrix } = activeProject.currentData.contextState;
       
       const { newContent, sources } = await fixSectionContentWithSearch(
@@ -475,7 +489,7 @@ const App: React.FC = () => {
     setIsGenerating(true);
     updateSection(section.id, { status: SectionStatus.GENERATING, validationFeedback: '' });
     try {
-      const context = getFullContext();
+      const context = getFullContext({ maxLength: 100000 });
       const goal = activeProject.currentData.contextState.businessGoal;
       const matrix = activeProject.currentData.contextState.strategicMatrix;
       const newContent = await generateSectionContent(section.title, section.description, '', context, goal, '', '', section.content, refinementInput, '', '', matrix);

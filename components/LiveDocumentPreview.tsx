@@ -19,15 +19,28 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
   const sortedSections = sections
     .filter(s => s.status === SectionStatus.COMPLETED || s.status === SectionStatus.APPROVED)
     .sort((a, b) => {
-      const aParts = a.id.split('.').map(Number);
-      const bParts = b.id.split('.').map(Number);
-      
-      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-        const valA = aParts[i] || 0;
-        const valB = bParts[i] || 0;
-        if (valA !== valB) return valA - valB;
+      const aIsNumeric = /^\d+(\.\d+)*$/.test(a.id);
+      const bIsNumeric = /^\d+(\.\d+)*$/.test(b.id);
+
+      // If both are standard numeric IDs, sort them numerically
+      if (aIsNumeric && bIsNumeric) {
+          const aParts = a.id.split('.').map(Number);
+          const bParts = b.id.split('.').map(Number);
+          for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+              const valA = aParts[i] || 0;
+              const valB = bParts[i] || 0;
+              if (valA !== valB) return valA - valB;
+          }
+          return 0;
       }
-      return 0;
+
+      // Fallback for non-numeric or mixed IDs (e.g., 'ai-gen-...')
+      // This puts numeric IDs before non-numeric ones if mixed.
+      if (aIsNumeric && !bIsNumeric) return -1;
+      if (!aIsNumeric && bIsNumeric) return 1;
+
+      // If both are non-numeric, sort them as strings.
+      return a.id.localeCompare(b.id);
     });
 
   const handleDownloadPdf = async () => {

@@ -217,12 +217,28 @@ export const runDiagnosisStep = async (
         
         const json = JSON.parse(cleanJsonString(result.text || "{}"));
         
-        // Validate structure and assign defaults if properties are missing to avoid "not iterable" errors
+        // Deeper validation of the returned JSON structure to prevent runtime errors.
         if (!Array.isArray(json.logs)) {
-             json.logs = []; 
+             json.logs = [`Alerta: A IA retornou 'logs' em um formato inválido.`]; 
         }
         if (!json.matrixUpdate || typeof json.matrixUpdate !== 'object') {
              json.matrixUpdate = {};
+             json.logs.push("Alerta: A IA retornou 'matrixUpdate' em um formato inválido.");
+        } else {
+            // Deeper validation of matrix structure
+            if (json.matrixUpdate.swot && typeof json.matrixUpdate.swot !== 'object') {
+                json.matrixUpdate.swot = {};
+                json.logs.push("Alerta: Bloco 'swot' da matriz retornado em formato inválido.");
+            }
+        }
+        if (stepIndex === 9 && json.finalDiagnosis) {
+            if(typeof json.finalDiagnosis !== 'object') {
+                json.finalDiagnosis = { overallReadiness: 0, gaps: [] };
+                json.logs.push("Alerta: A IA retornou 'finalDiagnosis' em um formato inválido.");
+            } else if (!Array.isArray(json.finalDiagnosis.gaps)) {
+                json.finalDiagnosis.gaps = [];
+                json.logs.push("Alerta: A IA retornou 'gaps' do diagnóstico em um formato inválido.");
+            }
         }
 
         return json as DiagnosisStepResult;
