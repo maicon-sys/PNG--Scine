@@ -30,7 +30,6 @@ const STORAGE_KEY_USER = 'strategia-ai-user';
 const STORAGE_KEY_PROJECTS = 'strategia-ai-projects';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const DIAGNOSIS_THROTTLE_DELAY = 1500; // 1.5s delay to stay under 60 RPM limit
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -269,15 +268,6 @@ const App: React.FC = () => {
 
   const handleRunDiagnosis = async () => {
     if (!activeProject) return;
-
-    if (!hasApiKey) {
-      if (window.aistudio) {
-        setIsApiKeySelectionOpen(true);
-        return;
-      }
-      alert("API Key necessária para diagnóstico.");
-      return;
-    }
     
     setIsDiagnosing(true);
     setDiagnosisLogs([]);
@@ -331,11 +321,6 @@ const App: React.FC = () => {
                  });
                  setDiagnosisLogs(prev => [...prev, `Diagnóstico concluído! Nível de Prontidão: ${result.finalDiagnosis?.overallReadiness}%`]);
             }
-
-            // Throttling: Wait before the next step to avoid hitting rate limits
-            if (i < DIAGNOSIS_STEPS.length - 1) {
-              await wait(DIAGNOSIS_THROTTLE_DELAY);
-            }
         }
     } catch (error) {
         console.error("Erro no diagnóstico:", error);
@@ -347,15 +332,6 @@ const App: React.FC = () => {
 
   const handleGenerateSection = async (section: PlanSection) => {
       if (!activeProject) return;
-
-      if (!hasApiKey) {
-        if (window.aistudio) {
-          setIsApiKeySelectionOpen(true);
-          return;
-        }
-        alert("API Key necessária.");
-        return;
-      }
 
       const matrix = activeProject.currentData.contextState.strategicMatrix;
       if (!matrix || matrix.generatedAt === 0) {
@@ -406,15 +382,6 @@ const App: React.FC = () => {
 
   const handleRefineSection = async () => {
     if (!activeProject || !activeSection || !refinementInput.trim()) return;
-
-    if (!hasApiKey) {
-      if (window.aistudio) {
-        setIsApiKeySelectionOpen(true);
-        return;
-      }
-      alert("API Key necessária para refinar o conteúdo.");
-      return;
-    }
 
     setIsGenerating(true);
     updateSection(activeSection.id, { status: SectionStatus.GENERATING });
@@ -484,15 +451,6 @@ const App: React.FC = () => {
 
   const handleValidateCurrentSection = async () => {
     if (!activeProject || !activeSection) return;
-
-    if (!hasApiKey) {
-      if (window.aistudio) {
-        setIsApiKeySelectionOpen(true);
-        return;
-      }
-      alert("API Key é necessária para a validação.");
-      return;
-    }
     
     // 1. Salva o conteúdo atual antes de validar
     handleSaveContent(false);
