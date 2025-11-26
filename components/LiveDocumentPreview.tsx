@@ -1,9 +1,11 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Download, FileText, ArrowLeft, Loader2 } from 'lucide-react';
-import { PlanSection, SectionStatus, ProjectAsset } from '../types';
+import { FileText, ArrowLeft, FileCode, Loader2, Printer } from 'lucide-react';
+import { PlanSection, ProjectAsset } from '../types';
 import { GLOSSARY_TERMS } from '../constants';
+import { generateDocx } from '../services/generateDocx';
+import { paginateContent, PaginatedResult } from '../services/paginateDocument';
 
 interface LiveDocumentPreviewProps {
   projectName: string;
@@ -13,273 +15,244 @@ interface LiveDocumentPreviewProps {
 }
 
 export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projectName, sections, assets, onClose }) => {
-  const docRef = useRef<HTMLDivElement>(null);
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-  const [pdfProgress, setPdfProgress] = useState(0);
-  const [scriptsLoaded, setScriptsLoaded] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  
+  // States para paginação
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [paginatedData, setPaginatedData] = useState<PaginatedResult | null>(null);
+  const [isCalculating, setIsCalculating] = useState(true);
 
-  useEffect(() => {
-    const checkScripts = () => {
-      if (window.jspdf && window.html2canvas) {
-        setScriptsLoaded(true);
-      }
-    };
-
-    checkScripts();
-    const interval = setInterval(checkScripts, 500);
-    return () => clearInterval(interval);
-  }, []);
-
-  // FIX: A ordenação agora respeita a ordem exata vinda do editor.
-  // A prop 'sections' já está na ordem correta, então apenas filtramos, sem reordenar.
   const sortedSections = sections
-    .filter(s => s.status === SectionStatus.COMPLETED || s.status === SectionStatus.APPROVED);
+    .filter(s => s.content && s.content.trim() !== '');
 
-  const handleDownloadPdf = async () => {
-    const originalContent = docRef.current;
-    if (!originalContent) return;
-    if (!window.jspdf || !window.html2canvas) {
-      alert("As bibliotecas de geração de PDF ainda não carregaram. Aguarde um momento e tente novamente.");
-      return;
-    }
-    
-    setIsGeneratingPdf(true);
-    setPdfProgress(0);
-    
-    // FIX: Create a temporary off-screen container to render the full content
-    // without scroll limitations, ensuring html2canvas captures everything.
-    const captureContainer = document.createElement('div');
-    captureContainer.style.position = 'absolute';
-    captureContainer.style.left = '-9999px'; // Move it off-screen
-    captureContainer.style.top = '0';
-    captureContainer.innerHTML = originalContent.innerHTML; // Copy the content
-    document.body.appendChild(captureContainer);
-
-    try {
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      
-      // Capture the temporary container which is now fully rendered without scroll constraints
-      await pdf.html(captureContainer, {
-        callback: function (doc) {
-          // Add page numbers
-          const pageCount = doc.internal.getNumberOfPages();
-          for (let i = 1; i <= pageCount; i++) {
-            doc.setPage(i);
-            doc.setFontSize(10);
-            doc.setTextColor(100);
-            doc.text(`Página ${i} de ${pageCount}`, doc.internal.pageSize.getWidth() / 2, 287, { align: 'center' });
-          }
-          doc.save(`${projectName.replace(/[\s/]/g, '_')}_Plano_de_Negocios.pdf`);
-        },
-        margin: [20, 20, 20, 20],
-        autoPaging: 'text',
-        html2canvas: {
-          scale: 0.26,
-          useCORS: true,
-          logging: false,
-          // We no longer need windowWidth/Height as the element itself has the full size
-          onclone: (clonedDoc) => {
-            const tableWrappers = clonedDoc.querySelectorAll('.pdf-table-wrapper');
-            tableWrappers.forEach((wrapper: HTMLElement) => {
-                wrapper.style.overflow = 'visible';
-            });
-          },
-          // FIX: Implement incremental progress bar for better user experience.
-          onprogress: (progress) => {
-            setPdfProgress(progress * 100);
-          },
-        },
-        pagebreak: { mode: 'css', before: '.break-before-page', after: '.break-after-page' }
-      });
-
-    } catch (e) {
-      console.error("PDF generation failed", e);
-      alert("Falha ao gerar o PDF. Verifique o console para mais detalhes.");
-    } finally {
-      // Clean up by removing the temporary container from the DOM
-      document.body.removeChild(captureContainer);
-      setIsGeneratingPdf(false);
-      setPdfProgress(0);
-    }
-  };
-
-
-  const handleDownloadMarkdown = () => {
-    const content = sortedSections.map(s => `# ${s.title}\n\n${s.content}`).join('\n\n---\n\n');
-    const element = document.createElement("a");
-    const file = new Blob([content], {type: 'text/markdown'});
-    element.href = URL.createObjectURL(file);
-    element.download = `GPN-${projectName}.md`;
-    document.body.appendChild(element);
-    element.click();
-  };
-
-  const getGlossaryTerms = (text: string) => {
-    const termsFound: string[] = [];
-    if (!text) return termsFound;
-    
-    Object.keys(GLOSSARY_TERMS).forEach(term => {
-      const regex = new RegExp(`\\b${term}\\b`, 'i');
-      if (regex.test(text)) {
-        termsFound.push(`**${term}**: ${GLOSSARY_TERMS[term]}`);
+  // --- LOGICA DE PAGINAÇÃO ---
+  useEffect(() => {
+    // Aguarda o React renderizar o Markdown no container oculto
+    const timer = setTimeout(() => {
+      if (measureRef.current) {
+        // Offset inicial de 2 páginas (1 Capa + 1 Sumário estimado)
+        // Se o sumário crescer, a lógica poderia ser refinada, mas 1 página de sumário costuma bastar para pré-visualização.
+        const result = paginateContent(measureRef.current, 2);
+        setPaginatedData(result);
+        setIsCalculating(false);
       }
-    });
-    return termsFound;
+    }, 500); // Pequeno delay para garantir que imagens/fontes carreguem layout
+
+    return () => clearTimeout(timer);
+  }, [sections]);
+
+  const handleExportDocx = async () => {
+    try {
+      setIsExporting(true);
+      // Passa os assets para garantir que imagens sejam incluídas no DOCX
+      const blob = await generateDocx(projectName, sortedSections, assets);
+      
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${projectName.replace(/[\s/]/g, '_')}_Plano_de_Negocios.docx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Erro ao gerar DOCX:", error);
+      alert("Houve um erro ao gerar o arquivo Word. Tente novamente.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const MarkdownComponents = {
-    h1: ({...props}) => <h1 className="text-2xl font-bold text-black mt-6 mb-4 border-b border-gray-300 pb-2" {...props} />,
-    h2: ({...props}) => <h2 className="text-xl font-bold text-gray-900 mt-5 mb-3" {...props} />,
-    h3: ({...props}) => <h3 className="text-lg font-semibold text-gray-800 mt-4 mb-2" {...props} />,
-    p: ({...props}) => <p className="text-gray-900 leading-relaxed mb-4 text-justify" {...props} />,
-    ul: ({...props}) => <ul className="list-disc list-inside mb-4 text-gray-900 pl-4" {...props} />,
+    h1: ({...props}) => <h1 id={props.id} className="chapter-start text-2xl font-bold text-black mt-0 mb-6 pb-2 border-b-2 border-gray-800 uppercase" {...props} />,
+    h2: ({...props}) => <h2 id={props.id} className="text-xl font-bold text-gray-800 mt-6 mb-3 border-b border-gray-200 pb-1" {...props} />,
+    h3: ({...props}) => <h3 id={props.id} className="text-lg font-semibold text-gray-700 mt-4 mb-2" {...props} />,
+    p: ({...props}) => <p className="text-gray-900 leading-relaxed mb-3 text-justify text-sm" {...props} />,
+    ul: ({...props}) => <ul className="list-disc list-inside mb-4 text-gray-900 pl-4 text-sm" {...props} />,
     li: ({...props}) => <li className="mb-1" {...props} />,
-    // FIX: Add a specific class and overflow handling to table wrappers.
-    // This allows targeting them during PDF generation to fix capture issues.
-    table: ({...props}) => <div className="my-6 border border-gray-400 overflow-x-auto pdf-table-wrapper"><table className="min-w-full divide-y divide-gray-400" {...props} /></div>,
+    table: ({...props}) => <div className="my-4 border border-gray-300 rounded overflow-hidden"><table className="min-w-full divide-y divide-gray-300" {...props} /></div>,
     thead: ({...props}) => <thead className="bg-gray-100" {...props} />,
-    th: ({...props}) => <th className="px-4 py-2 text-left text-xs font-bold text-gray-900 uppercase tracking-wider border-r border-gray-300" {...props} />,
-    td: ({...props}) => <td className="px-4 py-2 text-sm text-gray-900 border-t border-gray-300 border-r" {...props} />,
-    strong: ({...props}) => <strong className="font-bold text-black" {...props} />,
+    th: ({...props}) => <th className="px-3 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-r border-gray-300" {...props} />,
+    td: ({...props}) => <td className="px-3 py-2 text-xs text-gray-700 border-t border-gray-300 border-r" {...props} />,
     img: ({node, ...props}: any) => {
-        // Resolve asset:// syntax
         let src = props.src || '';
         if (src.startsWith('asset://')) {
             const assetId = src.replace('asset://', '');
             const asset = assets.find(a => a.id === assetId);
             if (asset) {
-                // FIX: Detecta o MIME type a partir dos "magic numbers" dos dados Base64 para
-                // renderizar corretamente diferentes formatos de imagem (PNG, JPG, GIF, WebP).
-                let mimeType = 'image/png'; // Padrão
+                let mimeType = 'image/png';
                 const base64Data = asset.data;
-                if (base64Data.startsWith('/9j/')) {
-                    mimeType = 'image/jpeg';
-                } else if (base64Data.startsWith('iVBORw0KGgo=')) {
-                    mimeType = 'image/png';
-                } else if (base64Data.startsWith('R0lGODlh')) {
-                    mimeType = 'image/gif';
-                } else if (base64Data.startsWith('UklGR')) {
-                    mimeType = 'image/webp';
-                }
+                if (base64Data.startsWith('/9j/')) mimeType = 'image/jpeg';
+                else if (base64Data.startsWith('iVBORw0KGgo=')) mimeType = 'image/png';
                 src = `data:${mimeType};base64,${base64Data}`;
             }
         }
-        return <img {...props} src={src} className="max-w-full h-auto my-6 rounded-lg shadow-md mx-auto print:block" />;
+        return <img {...props} src={src} className="max-w-full h-auto max-h-[400px] my-4 rounded shadow-sm mx-auto block" />;
     }
   };
 
+  // Prepara o conteúdo Markdown bruto com IDs injetados para o TOC funcionar
+  const fullMarkdownContent = sortedSections.map(section => {
+    // Injeta IDs nos headers via sintaxe HTML ou processamento customizado seria ideal,
+    // mas aqui vamos assumir que o ReactMarkdown renderiza na ordem.
+    // Para simplificar a paginação visual, renderizamos Seção por Seção com wrapper DIV contendo o ID.
+    return `
+# ${section.title} <!-- {id: "${section.id}"} -->
+
+${section.content}
+    `;
+  }).join('\n\n');
+
   return (
-    <div className="min-h-screen bg-gray-400 flex flex-col">
+    <div className="min-h-screen bg-gray-500 flex flex-col font-sans">
+      {/* --- HIDDEN MEASURE CONTAINER (IMPORTANTE: Renderiza todo o conteúdo para cálculo) --- */}
+      <div 
+        ref={measureRef} 
+        className="absolute top-0 left-0 w-[210mm] opacity-0 pointer-events-none p-[20mm] bg-white text-justify"
+        style={{ zIndex: -1000 }}
+      >
+        {sortedSections.map(section => (
+           <div key={`measure-${section.id}`} id={section.id}>
+              {/* O H1 precisa ter o ID da seção para o mapa do TOC funcionar */}
+              <h1 id={section.id} className="chapter-start text-2xl font-bold text-black mt-0 mb-6 pb-2 border-b-2 border-gray-800 uppercase">
+                {section.title}
+              </h1>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                  ...MarkdownComponents,
+                  h1: ({...props}) => <h2 className="text-xl font-bold mt-4 mb-2" {...props} /> // Downgrade inner H1s
+              }}>
+                {section.content}
+              </ReactMarkdown>
+           </div>
+        ))}
+      </div>
+
       {/* Header Toolbar */}
-      <div className="bg-white border-b border-gray-300 p-4 sticky top-0 z-50 flex justify-between items-center shadow-md print:hidden">
+      <div className="bg-white border-b border-gray-300 p-3 sticky top-0 z-50 flex justify-between items-center shadow-lg print:hidden">
         <div className="flex items-center gap-4">
-          <button onClick={onClose} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium">
-            <ArrowLeft className="w-4 h-4" /> Voltar ao Editor
+          <button onClick={onClose} className="flex items-center gap-2 text-gray-700 hover:text-black font-medium transition-colors">
+            <ArrowLeft className="w-5 h-5" /> Voltar
           </button>
           <div className="h-6 w-px bg-gray-300"></div>
-          <h1 className="text-lg font-bold text-gray-800 truncate max-w-md">
-             Documento Final: {projectName}
-          </h1>
+          <div>
+             <h1 className="text-sm font-bold text-gray-800 truncate max-w-md">{projectName}</h1>
+             <p className="text-xs text-gray-500">Visualização de Impressão (A4)</p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button onClick={handleDownloadMarkdown} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50">
-            <FileText className="w-4 h-4" /> Baixar Texto
+        <div className="flex gap-3">
+            {isCalculating && <span className="text-xs flex items-center gap-2 text-blue-600"><Loader2 className="w-3 h-3 animate-spin"/> Paginando...</span>}
+          <button 
+            onClick={() => window.print()} 
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 border border-gray-300 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+          >
+            <Printer className="w-4 h-4" /> Imprimir / PDF
           </button>
           <button 
-            onClick={handleDownloadPdf}
-            disabled={isGeneratingPdf || !scriptsLoaded}
-            className={`flex items-center justify-center w-48 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium shadow-sm transition-colors disabled:bg-blue-400 disabled:cursor-wait ${isGeneratingPdf ? 'px-4 py-1.5' : 'px-4 py-2 gap-2'}`}
+            onClick={handleExportDocx}
+            disabled={isExporting || isCalculating}
+            className="flex items-center justify-center w-48 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium shadow-sm transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            {isGeneratingPdf ? (
-                <div className="w-full flex flex-col items-center">
-                    <div className="flex items-center justify-center gap-2 text-sm">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Gerando... ({Math.round(pdfProgress)}%)</span>
-                    </div>
-                    <div className="w-full bg-blue-900/50 rounded-full h-1 mt-1">
-                        <div className="bg-white h-1 rounded-full transition-all duration-300 ease-linear" style={{ width: `${pdfProgress}%` }}></div>
-                    </div>
-                </div>
-            ) : !scriptsLoaded ? (
-                <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Carregando Libs...</span>
-                </>
-            ) : (
-                <>
-                    <Download className="w-4 h-4" />
-                    <span>Download PDF</span>
-                </>
-            )}
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FileCode className="w-4 h-4 mr-2" />}
+            {isExporting ? "Gerando Word..." : "Baixar .docx"}
           </button>
         </div>
       </div>
 
-      {/* Document Canvas (A4 Simulation) */}
-      <div className="flex-1 overflow-y-auto p-8">
-        <div ref={docRef}>
-            {/* Cover Page */}
-            <div className="page-a4 bg-white w-[210mm] h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 flex flex-col break-after-page">
-                <div className="flex flex-col justify-center items-center h-full">
-                    <h1 className="text-4xl font-bold text-center text-black mb-4 uppercase tracking-wider">{projectName}</h1>
-                    <h2 className="text-2xl text-center text-gray-600 mb-12">Plano de Negócios</h2>
-                    
-                    <div className="mt-auto text-center text-gray-500 text-sm">
-                        <p>Documento Gerado por Stratégia AI</p>
-                        <p>{new Date().toLocaleDateString()}</p>
-                    </div>
+      {/* DOCUMENTO VISUAL (CANVAS) */}
+      <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center gap-8 print:p-0 print:gap-0">
+        
+        {/* PÁGINA 1: CAPA */}
+        <div className="page-a4 bg-white shadow-2xl print:shadow-none flex flex-col justify-between relative break-after-page">
+            <div className="flex-1 flex flex-col justify-center items-center p-12 text-center border-b-8 border-blue-900">
+                <div className="w-24 h-24 bg-blue-900 rounded-full flex items-center justify-center mb-8">
+                    <FileText className="w-10 h-10 text-white" />
                 </div>
+                <h1 className="text-5xl font-extrabold text-gray-900 mb-4 tracking-tight uppercase">{projectName}</h1>
+                <h2 className="text-2xl text-gray-500 font-light">Plano de Negócios Profissional</h2>
             </div>
-
-            {/* Table of Contents */}
-            <div className="page-a4 bg-white w-[210mm] h-[297mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0 break-after-page">
-                <h2 className="text-2xl font-bold mb-6 text-black border-b border-black pb-2">Sumário</h2>
-                {/* FIX: Make Table of Contents items clickable links */}
-                <div className="space-y-1">
-                    {sortedSections.map(section => (
-                        <a href={`#section-preview-${section.id}`} key={`toc-${section.id}`} className="flex justify-between text-sm p-2 rounded-md hover:bg-gray-100 no-underline group">
-                            <span className="text-gray-900 font-medium truncate pr-2 group-hover:text-blue-600">{section.id} {section.title}</span>
-                            <span className="border-b border-dotted border-gray-400 flex-grow mx-2 relative top-[-4px]"></span>
-                        </a>
-                    ))}
-                </div>
+            <div className="bg-gray-50 p-12 text-center">
+                <p className="text-sm text-gray-500 uppercase tracking-widest mb-1">Gerado por</p>
+                <p className="font-bold text-blue-900">Stratégia AI</p>
+                <p className="text-xs text-gray-400 mt-4">{new Date().toLocaleDateString()}</p>
             </div>
-
-            {/* Content Pages */}
-            {sortedSections.length > 0 && (
-                <div className="page-a4 bg-white w-[210mm] shadow-2xl p-[20mm] mx-auto my-8 print:shadow-none print:my-0">
-                    {sortedSections.map(section => {
-                        const glossaryTerms = getGlossaryTerms(section.content);
-                        return (
-                            <div key={section.id} id={`section-preview-${section.id}`} className="break-before-page">
-                                <div className="flex items-baseline gap-2 mb-4 border-b border-gray-200 pb-1">
-                                    <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">{section.id}</span>
-                                    <h2 className="text-xl font-bold text-black">{section.title}</h2>
-                                </div>
-                                <div className="prose prose-slate max-w-none text-justify text-black">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                        {typeof section.content === 'string' ? section.content : JSON.stringify(section.content)}
-                                    </ReactMarkdown>
-                                </div>
-                                
-                                {glossaryTerms.length > 0 && (
-                                    <div className="mt-6 pt-3 border-t border-gray-300 text-[10px] text-gray-500 font-mono leading-tight">
-                                        {glossaryTerms.map((term, idx) => (
-                                            <span key={idx} className="mr-3 inline-block">
-                                                <ReactMarkdown components={{p: ({node, ...props}) => <span {...props} />}}>{term}</ReactMarkdown>
-                                                {idx < glossaryTerms.length - 1 && ";"}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
+            {/* Numeração de Página (Capa geralmente não tem, mas mantendo padrão se desejar) */}
+             <div className="absolute bottom-4 right-8 text-xs text-gray-400">Página 1</div>
         </div>
+
+        {/* PÁGINA 2: SUMÁRIO */}
+        <div className="page-a4 bg-white shadow-2xl print:shadow-none relative p-[20mm] break-after-page">
+             <h2 className="text-2xl font-bold mb-8 text-black border-b-2 border-black pb-2 uppercase tracking-wide">Sumário Executivo</h2>
+             
+             {isCalculating ? (
+                 <div className="flex items-center justify-center h-64 text-gray-400">
+                     <Loader2 className="w-8 h-8 animate-spin mr-2" /> Calculando paginação...
+                 </div>
+             ) : (
+                 <div className="space-y-1">
+                     {sortedSections.map(section => {
+                         const pageNum = paginatedData?.tocMap[section.id] || '-';
+                         return (
+                            <a href={`#${section.id}`} key={`toc-${section.id}`} className="flex items-baseline text-sm py-1.5 hover:bg-gray-50 group no-underline text-gray-800">
+                                <span className="font-medium min-w-[30px] text-gray-500 text-xs">{section.id}</span>
+                                <span className="font-semibold truncate mr-2 flex-1 group-hover:text-blue-700">{section.title}</span>
+                                <span className="flex-1 border-b border-dotted border-gray-300 mx-1 relative -top-1"></span>
+                                <span className="font-bold text-gray-900">{pageNum}</span>
+                            </a>
+                         );
+                     })}
+                 </div>
+             )}
+              <div className="absolute bottom-[20mm] right-[20mm] text-xs text-gray-400 border-t border-gray-200 pt-2 w-full text-right">
+                Página 2
+              </div>
+        </div>
+
+        {/* PÁGINAS DE CONTEÚDO (Geradas Dinamicamente) */}
+        {!isCalculating && paginatedData?.pages.map((pageHtml, index) => (
+            <div key={`page-${index}`} className="page-a4 bg-white shadow-2xl print:shadow-none relative p-[20mm] break-after-page flex flex-col">
+                {/* Header da Página */}
+                <div className="absolute top-[10mm] left-[20mm] right-[20mm] border-b border-gray-200 pb-2 flex justify-between items-center text-[10px] text-gray-400 uppercase tracking-wider">
+                     <span>{projectName}</span>
+                     <span>Plano de Negócios</span>
+                </div>
+
+                {/* Conteúdo Injetado */}
+                <div 
+                    className="flex-1 mt-4"
+                    dangerouslySetInnerHTML={{ __html: pageHtml }} 
+                />
+
+                {/* Footer da Página */}
+                <div className="absolute bottom-[10mm] left-[20mm] right-[20mm] border-t border-gray-200 pt-2 flex justify-between items-center text-xs text-gray-500">
+                    <span>Confidencial</span>
+                    <span className="font-mono">Página {index + 3} de {paginatedData.totalPages}</span>
+                </div>
+            </div>
+        ))}
+
       </div>
+
+      <style>{`
+        .page-a4 {
+            width: 210mm;
+            min-height: 297mm;
+            height: 297mm; /* Altura fixa para visualização */
+            overflow: hidden; /* Evita que conteúdo estoure visualmente */
+        }
+        @media print {
+            body { background: white; }
+            .page-a4 {
+                width: 100%;
+                height: 100%;
+                box-shadow: none;
+                margin: 0;
+                page-break-after: always;
+                border: none;
+            }
+            /* Esconde elementos de UI */
+            button, .no-print { display: none !important; }
+        }
+      `}</style>
     </div>
   );
 };

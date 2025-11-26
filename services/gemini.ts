@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { FinancialYear, ProjectAsset, DiagnosisResponse, PlanSection, StrategicMatrix, AnalysisGap, BusinessGoal, DiagnosisStepResult, CanvasBlock, SwotBlock, MatrixItem, SectionStatus } from "../types";
 import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
 
@@ -7,6 +7,45 @@ import { BRDE_FSA_RULES, SCINE_CONTEXT, DIAGNOSIS_STEPS } from "../constants";
 const AI_DIAGNOSIS_MODEL = "gemini-2.5-flash";
 // 'pro' é usado para a geração de conteúdo textual, que exige maior profundidade e análise.
 const AI_WRITER_MODEL = "gemini-3-pro-preview";
+
+// --- RETRY LOGIC CONFIGURATION ---
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 2000; // 2 seconds
+const MOCK_DELAY = 800; // ms for debug mode simulation
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Wrapper function to execute AI calls with exponential backoff for 429 errors.
+ */
+async function withRetry<T>(fn: () => Promise<T>, operationName: string): Promise<T> {
+  let attempt = 0;
+  
+  while (true) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const isRateLimit = 
+        error?.status === 429 || 
+        error?.message?.includes('429') || 
+        error?.message?.includes('quota') ||
+        error?.message?.includes('RESOURCE_EXHAUSTED');
+      
+      const isServerOverload = error?.status === 503;
+
+      if ((isRateLimit || isServerOverload) && attempt < MAX_RETRIES) {
+        attempt++;
+        const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1); // 2s, 4s, 8s...
+        console.warn(`[Gemini] Rate limit hit for ${operationName}. Retrying in ${delay}ms (Attempt ${attempt}/${MAX_RETRIES})...`);
+        await wait(delay);
+        continue;
+      }
+      
+      // If not retry-able or max retries reached, throw the error
+      throw error;
+    }
+  }
+}
 
 // Helper to determine MIME type from base64 string
 const getBase64MimeType = (base64Data: string): string => {
@@ -160,8 +199,60 @@ export const runDiagnosisStep = async (
     stepIndex: number,
     fullContext: string,
     currentMatrix: StrategicMatrix,
-    assets: ProjectAsset[]
+    assets: ProjectAsset[],
+    isDebugMode: boolean
 ): Promise<DiagnosisStepResult> => {
+    if (isDebugMode) {
+        await wait(200); // Faster mock delay for diagnosis loop
+        const step = DIAGNOSIS_STEPS[stepIndex];
+        const mockResult: DiagnosisStepResult = {
+            logs: [
+                `[DEBUG] Análise simulada para: ${step.name}.`,
+                `[DEBUG] Insight A encontrado.`,
+                `[DEBUG] Insight B encontrado.`
+            ],
+            matrixUpdate: {},
+        };
+        // Add a mock matrix item to a target block
+        if (step.matrixTargets.length > 0) {
+            const target = step.matrixTargets[0]; // e.g., 'customerSegments' or 'swot.strengths'
+            const mockItem: MatrixItem = {
+                item: `Item Simulado de ${step.name}`,
+                description: 'Esta é uma descrição gerada pelo modo de depuração.',
+                severity: 'moderado',
+                confidence: 'alta'
+            };
+            if (target.startsWith('swot.')) {
+                const swotKey = target.split('.')[1] as keyof StrategicMatrix['swot'];
+                // FIX: The type `Partial<StrategicMatrix>` is shallow. The nested `swot` property is expected
+                // to be a full `StrategicMatrix['swot']` object. We cast the partial update to this type
+                // to satisfy the compiler, as the runtime logic correctly handles a partial object.
+                mockResult.matrixUpdate = {
+                    swot: {
+                        [swotKey]: { items: [mockItem], description: 'Descrição simulada.', source: 'debug-mode', clarityLevel: 75 }
+                    } as StrategicMatrix['swot']
+                };
+            } else {
+                 mockResult.matrixUpdate = {
+                    [target]: { items: [mockItem], description: 'Descrição simulada.', source: 'debug-mode', clarityLevel: 75 }
+                 };
+            }
+        }
+
+        if (stepIndex === 9) { // Final step
+            mockResult.finalDiagnosis = {
+                overallReadiness: 88,
+                gaps: [{
+                    id: 'debug-gap-1',
+                    description: 'Lacuna simulada identificada pelo modo de depuração.',
+                    aiFeedback: 'Recomenda-se detalhar este ponto.',
+                    severityLevel: 'B'
+                }]
+            };
+        }
+        return mockResult;
+    }
+
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = AI_DIAGNOSIS_MODEL;
@@ -320,11 +411,14 @@ export const runDiagnosisStep = async (
     }));
 
     try {
-        const result = await ai.models.generateContent({
-            model,
-            contents: { parts: [{ text: prompt }, ...imageParts] },
-            config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema }
-        });
+        const result = await withRetry<GenerateContentResponse>(
+            () => ai.models.generateContent({
+                model,
+                contents: { parts: [{ text: prompt }, ...imageParts] },
+                config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema }
+            }),
+            `Diagnóstico Passo ${stepIndex + 1}`
+        );
         
         const json = JSON.parse(cleanJsonString(result.text || "{}"));
         
@@ -379,8 +473,14 @@ export const generateSectionContent = async (
     refinementContext: string = "",
     childSectionsContent: string = "",
     strategicMatrix: StrategicMatrix | undefined,
-    assets: ProjectAsset[]
+    assets: ProjectAsset[],
+    isDebugMode: boolean
 ): Promise<string> => {
+    if (isDebugMode) {
+        await wait(MOCK_DELAY);
+        return `## Conteúdo Simulado para "${sectionTitle}"\n\nEste é um texto gerado pelo **Modo de Depuração** para evitar o uso da sua cota de API. A IA real não foi chamada.\n\n**Instruções Recebidas:**\n> ${sectionDescription.substring(0, 200)}...\n\n- **Ponto Chave 1:** Análise simulada do primeiro ponto-chave com base no contexto do projeto.\n- **Ponto Chave 2:** Desenvolvimento do segundo ponto, detalhando os aspectos financeiros simulados.\n- **Ponto Chave 3:** Conclusão simulada, alinhada com o objetivo de ${goalContext}.\n\n| Métrica Simulada | Valor Simulado |\n|---|---|\n| Crescimento Anual | 15% |\n| Retorno | 24 meses |\n\n> Para desativar este modo e usar sua API Key real, utilize o botão de alternância no painel direito.`;
+    }
+
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = AI_WRITER_MODEL;
@@ -433,6 +533,11 @@ export const generateSectionContent = async (
     
     ${promptTask}
 
+    HIERARQUIA DE BUSCA DE INFORMAÇÃO:
+    - **Prioridade 1 (Matriz Estratégica):** Sua primeira e principal fonte de consulta DEVE ser a Matriz Estratégica. Use os insights e dados contidos nela como a base para sua resposta.
+    - **Prioridade 2 (Contexto Geral):** Se a informação necessária não estiver na Matriz, busque-a no Contexto Geral do Projeto (documentos, anotações).
+    - **Prioridade 3 (Inferência Contextual):** Se a informação não for encontrada em nenhuma das fontes, você DEVE indicar que a informação está ausente e que uma pesquisa externa pode ser necessária. NÃO invente dados quantitativos (valores, datas, nomes próprios). Você pode fazer inferências lógicas para conectar ideias, mas sinalize quando uma premissa não é suportada por dados.
+
     REGRAS GERAIS DE FORMATAÇÃO E CONDUTA:
     - **FOCO EM CLAREZA E CONTEXTO (REGRA CRÍTICA):** O texto deve ser escrito para um ser humano (avaliador, gestor), não para uma máquina. Contextualize todas as informações. Para apresentar dados comparativos (concorrentes), listas de características, cronogramas ou qualquer informação que possa ser estruturada, **É OBRIGATÓRIO o uso de tabelas Markdown**. Use negrito para destacar termos e conceitos importantes e quebre parágrafos longos com listas para facilitar a leitura dinâmica.
     - **SIGILO DA FERRAMENTA (REGRA CRÍTICA):** A "Matriz Estratégica" é sua ferramenta interna de análise. É ESTRITAMENTE PROIBIDO mencionar a "Matriz Estratégica", "Canvas", "SWOT" ou qualquer um de seus blocos internos (como 'customerSegments', 'revenueStreams', etc.) no texto final. Use as informações da matriz para construir sua análise, mas apresente o resultado como uma conclusão sua, sem citar a fonte interna. O leitor final (o avaliador do banco) não sabe o que é a matriz.
@@ -451,93 +556,223 @@ export const generateSectionContent = async (
     }));
 
     try {
-        const result = await ai.models.generateContent({
-            model,
-            contents: { parts: [{ text: prompt }, ...imageParts] },
-            config: { 
-                maxOutputTokens: 8192, 
-                // System instruction to produce detailed, high-quality analytical content.
-                systemInstruction: "Você é um consultor de negócios sênior e redator especialista. Sua tarefa é elaborar textos detalhados, analíticos e aprofundados para um plano de negócios profissional, seguindo rigorosamente a metodologia SEBRAE e os critérios do BRDE. É crucial que você NÃO invente novas seções ou numerações (como 10.8, 14.5). Sua resposta deve se limitar estritamente ao conteúdo da seção solicitada, mas com a máxima profundidade e qualidade analítica possível, utilizando os dados fornecidos."
-            }
-        });
+        const result = await withRetry<GenerateContentResponse>(
+            () => ai.models.generateContent({
+                model,
+                contents: { parts: [{ text: prompt }, ...imageParts] },
+                config: { 
+                    maxOutputTokens: 8192, 
+                    // System instruction to produce detailed, high-quality analytical content.
+                    systemInstruction: "Você é um consultor de negócios sênior e redator especialista. Sua tarefa é elaborar textos detalhados, analíticos e aprofundados para um plano de negócios profissional, seguindo rigorosamente a metodologia SEBRAE e os critérios do BRDE. É crucial que você NÃO invente novas seções ou numerações (como 10.8, 14.5). Sua resposta deve se limitar estritamente ao conteúdo da seção solicitada, mas com a máxima profundidade e qualidade analítica possível, utilizando os dados fornecidos."
+                }
+            }),
+            `Geração da Seção ${sectionTitle}`
+        );
         return result.text || "Erro: A IA não retornou conteúdo.";
-    } catch (e) {
+    } catch (e: any) {
         console.error(`Erro ao gerar seção ${sectionTitle}:`, e);
+        if (e.message?.includes('RESOURCE_EXHAUSTED')) {
+            return "Erro: Cota da API excedida. Por favor, aguarde alguns minutos e tente novamente.";
+        }
         return "Ocorreu um erro ao gerar o conteúdo. Por favor, tente novamente.";
     }
 };
 
-export const fixSectionContentWithSearch = async (
-    sectionTitle: string,
-    validationFeedback: string,
-    currentContent: string,
+export const runTopicValidation = async (
+    topicText: string,
+    topicTitle: string,
+    topicDescription: string,
     methodology: string,
-    context: string,
-    goalContext: string,
-    strategicMatrix: StrategicMatrix | undefined
-): Promise<{ newContent: string; sources: { url: string; title: string }[] }> => {
-    // Instantiate AI client before each call as per guidelines
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = AI_WRITER_MODEL; 
+    strategicMatrix: StrategicMatrix | null,
+    isDebugMode: boolean
+): Promise<string> => {
+    if (isDebugMode) {
+        await wait(MOCK_DELAY);
+        return `# VALIDAÇÃO SIMULADA: ${topicTitle}\n\n## 1. Metodologia ${methodology}\n**Correções necessárias (Simulado):**\n- O tópico parece coerente com a estrutura geral, mas falta aprofundamento no item X, conforme exigido pela metodologia.\n\n## 2. Requisitos BRDE\n**Análise (Simulado):**\n- **Clareza de escopo:** SIM. O escopo está bem definido.\n- **Sustentabilidade financeira:** NÃO. Os números apresentados parecem otimistas e não estão ancorados em dados da Matriz.\n\n## 3. Coerência com a Matriz\n**Divergências encontradas (Simulado):**\n- O texto cita uma projeção de receita de R$500k no primeiro ano, mas a Matriz indica R$350k. É preciso alinhar.\n\n## 5. Como corrigir\n1.  Ajuste a projeção de receita para R$350k, conforme a Matriz.\n2.  Inclua uma seção detalhando a análise de concorrência citada na metodologia.\n\n> Este relatório foi gerado pelo **Modo de Depuração**. Nenhuma análise real foi feita.`;
+    }
 
-    const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz estratégica não disponível.";
+    // Instantiate AI client
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const model = AI_WRITER_MODEL; // Using Pro model for better reasoning
+
+    const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix, null, 2) : "Matriz não disponível.";
 
     const prompt = `
-    ATUE COMO: Consultor Sênior de Projetos do BRDE em MODO DE CORREÇÃO.
-    OBJETIVO GERAL DO PLANO: ${goalContext}.
+    Você deve atuar como um validador técnico oficial de Plano de Negócios, usando como referência:
+    - Metodologia ${methodology} (estrutura obrigatória para cada tópico)
+    - Requisitos BRDE – Linha Inovação e Acessibilidade
+    - Matriz de Valores e Indicadores fornecida abaixo
 
-    SEÇÃO-ALVO: "${sectionTitle}"
-    CONTEÚDO ATUAL COM ERRO: """${currentContent}"""
+    CONTEXTO DO TÓPICO:
+    Título: "${topicTitle}"
+    Descrição Esperada: "${topicDescription}"
     
-    PROBLEMA IDENTIFICADO PELA AUDITORIA (FEEDBACK):
+    MATRIZ DO PROJETO:
     """
-    ${validationFeedback}
+    ${matrixContext}
     """
 
-    TAREFA OBRIGATÓRIA:
-    1.  **Use a ferramenta de Pesquisa Google (googleSearch)** para encontrar informações atualizadas, dados, estatísticas ou exemplos que resolvam o problema apontado no feedback.
-    2.  **Reescreva o conteúdo da seção** para corrigir COMPLETAMENTE o erro. A nova versão deve ser robusta, bem fundamentada e convincente.
-    3.  **NÃO se desculpe pelo erro nem mencione o processo de correção no texto final.** Apenas entregue o texto corrigido como se fosse a versão original e correta.
-    4.  Sua resposta será usada para substituir o conteúdo antigo.
+    CONTEÚDO DO TÓPICO A SER VALIDADO:
+    """
+    ${topicText}
+    """
 
-    FONTES DE DADOS ADICIONAIS:
-    -   MATRIZ ESTRATÉGICA: ${matrixContext}
-    -   CONTEXTO GERAL DO PROJETO: """${context}"""
+    Sua tarefa:
+    Avalie somente este tópico, respondendo de forma objetiva e estruturada:
 
-    REGRAS DE FORMATAÇÃO:
-    - **FOCO EM CLAREZA E CONTEXTO (REGRA CRÍTICA):** O texto deve ser escrito para um ser humano (avaliador, gestor), não para uma máquina. Contextualize todas as informações. Para apresentar dados comparativos (concorrentes), listas de características, cronogramas ou qualquer informação que possa ser estruturada, **É OBRIGATÓRIO o uso de tabelas Markdown**. Use negrito para destacar termos e conceitos importantes e quebre parágrafos longos com listas para facilitar a leitura dinâmica.
-    - **SIGILO DA FERRAMENTA (REGRA CRÍTICA):** A "Matriz Estratégica" é sua ferramenta interna de análise. É ESTRITAMENTE PROIBIDO mencionar a "Matriz Estratégica" ou seus blocos internos (como 'customerSegments') no texto final. Use os dados da matriz, mas não cite a fonte. O leitor final (o avaliador do banco) não sabe o que é a matriz.
-    - Comece a escrever diretamente o conteúdo corrigido. NÃO inclua o título da seção.
+    1. Coerência com a Metodologia ${methodology}
+    O tópico está seguindo o que a metodologia exige para essa seção específica?
+    (Caso não esteja, liste exatamente o que falta.)
+
+    2. Conformidade com o BRDE
+    Analise se o tópico cumpre os requisitos do BRDE:
+    - Clareza de escopo
+    - Justificativa consistente
+    - Inovação
+    - Acessibilidade
+    - Sustentabilidade financeira
+    - Indicadores confiáveis
+    Liste SIM / NÃO e explique cada item.
+
+    3. Coerência com a Matriz do Projeto
+    Compare o texto com os valores da Matriz de Valores:
+    - Há números contraditórios?
+    - Há promessas impossíveis?
+    - Alguma afirmação diverge dos indicadores?
+    - Há lacunas ou omissões importantes?
+    Liste cada inconsistência encontrada.
+
+    4. Problemas de lógica
+    - Falta raciocínio?
+    - Existe salto lógico?
+    - Falta causa → consequência?
+    - Há “inverdades” ou afirmações improváveis?
+    Liste claramente.
+
+    5. Orientação de Correção
+    Explique como o usuário deve corrigir o tópico, em passos simples:
+    Passo 1 — Ajustar…
+    Passo 2 — Incluir…
+    Passo 3 — Reescrever este trecho (sem fazer o texto completo)
+    Passo 4 — Validar coerência…
+    NÃO reescreva o tópico inteiro. Dê apenas instruções.
+
+    FORMATO DE SAÍDA OBRIGATÓRIO (Markdown):
+    # VALIDAÇÃO DO TÓPICO: ${topicTitle}
+
+    ## 1. Metodologia ${methodology}
+    **Correções necessárias:**
+    - ...
+    - ...
+
+    ## 2. Requisitos BRDE
+    **Análise:**
+    - ...
+    - ...
+
+    ## 3. Coerência com a Matriz
+    **Divergências encontradas:**
+    - ...
+    - ...
+
+    ## 4. Problemas de lógica e inverdades
+    - ...
+
+    ## 5. Como corrigir
+    1.
+    2.
+    3.
+    4.
     `;
 
     try {
-        const response = await ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: {
-                maxOutputTokens: 8192,
-                tools: [{ googleSearch: {} }]
-            }
-        });
-
-        const newContent = response.text || "Erro: A IA não retornou conteúdo corrigido.";
-        
-        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const sources: { url: string; title: string }[] = [];
-        if (Array.isArray(groundingChunks)) {
-            groundingChunks.forEach(chunk => {
-                if (chunk.web) {
-                    sources.push({ url: chunk.web.uri, title: chunk.web.title });
+        const result = await withRetry<GenerateContentResponse>(
+            () => ai.models.generateContent({
+                model,
+                contents: prompt,
+                config: {
+                    maxOutputTokens: 8192,
                 }
-            });
+            }),
+            `Validação do Tópico ${topicTitle}`
+        );
+        return result.text || "Erro: Relatório de validação vazio.";
+    } catch (e: any) {
+        console.error("Erro na validação do tópico:", e);
+        if (e.message?.includes('RESOURCE_EXHAUSTED')) {
+            return "Erro: Cota da API excedida. Não foi possível validar o tópico no momento.";
         }
-        
-        const uniqueSources = Array.from(new Map(sources.map(item => [item.url, item])).values());
+        return "Erro crítico ao gerar o relatório de validação. Tente novamente.";
+    }
+};
 
-        return { newContent, sources: uniqueSources };
-    } catch (e) {
-        console.error(`Erro ao corrigir seção ${sectionTitle} com pesquisa:`, e);
-        throw new Error("Falha na comunicação com a IA durante a correção. Tente novamente.");
+export const implementCorrections = async (
+    currentContent: string,
+    validationReport: string,
+    sectionTitle: string,
+    sectionDescription: string,
+    fullContext: string,
+    strategicMatrix: StrategicMatrix | null,
+    isDebugMode: boolean
+): Promise<string> => {
+    if (isDebugMode) {
+        await wait(MOCK_DELAY);
+        return `## Conteúdo Corrigido Simulado para "${sectionTitle}"\n\nEste texto foi reescrito pelo **Modo de Depuração** com base no relatório de validação simulado.\n\n**Principais Alterações (Simuladas):**\n- Os números foram ajustados para refletir a coerência com a Matriz Estratégica.\n- Foi adicionada uma nova seção para cobrir o ponto que faltava na metodologia.\n- A linguagem foi refinada para um tom mais profissional e alinhado ao BRDE.\n\n${currentContent.substring(0, 300)}... (trecho do conteúdo original mantido para contexto).`;
+    }
+
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const model = AI_WRITER_MODEL;
+    const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz não disponível.";
+
+    const prompt = `
+    ATUE COMO: Redator Técnico Sênior e Especialista em Planos de Negócios.
+    
+    MISSÃO: Reescrever e corrigir o texto da seção "${sectionTitle}" com base rigorosa no Relatório de Auditoria fornecido.
+    
+    CONTEXTO DO PROJETO:
+    """${fullContext}"""
+    
+    DADOS ESTRATÉGICOS (MATRIZ):
+    """${matrixContext}"""
+    
+    TEXTO ORIGINAL (COM PROBLEMAS):
+    """${currentContent}"""
+    
+    RELATÓRIO DE AUDITORIA (ERROS A CORRIGIR):
+    """${validationReport}"""
+    
+    DESCRIÇÃO DO TÓPICO (O QUE É ESPERADO):
+    "${sectionDescription}"
+
+    INSTRUÇÕES DE EXECUÇÃO:
+    1. **ANÁLISE DE LACUNAS:** Analise o relatório de auditoria. Se ele apontar falta de dados de mercado (taxas, concorrentes, estatísticas), use sua ferramenta de busca (Google Search) para encontrar dados REAIS e ATUALIZADOS para preencher essas lacunas.
+    2. **CORREÇÃO TÉCNICA:** Reescreva o texto original corrigindo todos os problemas de lógica, metodologia e tom apontados.
+    3. **ENRIQUECIMENTO:** Se o texto estiver vago, torne-o específico usando os dados do contexto e da matriz.
+    4. **TOM PROFISSIONAL:** Mantenha um tom formal, persuasivo e adequado para uma análise de crédito no BRDE.
+    5. **MANTENHA O FORMATO:** Use tabelas Markdown para dados comparativos e listas para facilitar a leitura.
+    
+    IMPORTANTE:
+    - Se você encontrar dados novos na pesquisa (ex: taxa SELIC atual, crescimento do setor em 2024), CITE-OS no texto de forma natural.
+    - O resultado deve ser o TEXTO FINAL DA SEÇÃO, pronto para ser aprovado. Não inclua "Aqui está o texto corrigido". Apenas o texto.
+    `;
+
+    try {
+        const result = await withRetry<GenerateContentResponse>(
+            () => ai.models.generateContent({
+                model,
+                contents: prompt,
+                config: {
+                    maxOutputTokens: 8192,
+                    // Habilita Google Search para buscar dados faltantes apontados na validação
+                    tools: [{ googleSearch: {} }] 
+                }
+            }),
+            `Correção da Seção ${sectionTitle}`
+        );
+        return result.text || currentContent; // Retorna original se falhar
+    } catch (e: any) {
+        console.error("Erro na implementação das correções:", e);
+        throw e;
     }
 };
 
@@ -564,29 +799,39 @@ export const generateFinancialData = async (
     Gere o JSON abaixo.
     `;
     try {
-        const result = await ai.models.generateContent({ model, contents: prompt, config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { analysis: { type: Type.STRING }, data: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { year: { type: Type.STRING }, revenue: { type: Type.NUMBER }, expenses: { type: Type.NUMBER }, profit: { type: Type.NUMBER } } } } } } } });
+        const result = await withRetry<GenerateContentResponse>(
+            () => ai.models.generateContent({ 
+                model, 
+                contents: prompt, 
+                config: { maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { analysis: { type: Type.STRING }, data: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { year: { type: Type.STRING }, revenue: { type: Type.NUMBER }, expenses: { type: Type.NUMBER }, profit: { type: Type.NUMBER } } } } } } } 
+            }),
+            "Geração de Dados Financeiros"
+        );
         const json = JSON.parse(cleanJsonString(result.text || "{}"));
         // Ensure json.data is an array before returning.
         const data = Array.isArray(json.data) ? json.data : [];
         return { analysis: json.analysis || "Análise indisponível.", data: data };
-    } catch (e) { console.error(e); return { analysis: "Erro ao gerar dados financeiros.", data: [] }; }
+    } catch (e) { console.error(e); return { analysis: "Erro ao gerar dados financeiros. Possível limite de cota.", data: [] }; }
 };
 
 export const generateProjectImage = async (promptDescription: string): Promise<string> => {
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
-            contents: {
-                parts: [{ text: promptDescription }],
-            },
-            config: {
-                imageConfig: {
-                    aspectRatio: "16:9"
+        const response = await withRetry<GenerateContentResponse>(
+            () => ai.models.generateContent({
+                model: 'gemini-2.5-flash-image',
+                contents: {
+                    parts: [{ text: promptDescription }],
+                },
+                config: {
+                    imageConfig: {
+                        aspectRatio: "16:9"
+                    }
                 }
-            }
-        });
+            }),
+            "Geração de Imagem"
+        );
 
         for (const part of response.candidates?.[0]?.content?.parts || []) {
             if (part.inlineData) {
@@ -594,9 +839,147 @@ export const generateProjectImage = async (promptDescription: string): Promise<s
             }
         }
         throw new Error("Nenhuma imagem foi gerada.");
-    } catch (e) { 
+    } catch (e: any) { 
         console.error("Erro na geração de imagem:", e); 
+        if (e.message?.includes('RESOURCE_EXHAUSTED')) {
+            throw new Error("Cota de geração de imagem excedida.");
+        }
         throw new Error("Falha ao gerar a imagem. Certifique-se de que sua API Key suporta geração de imagens e tente novamente."); 
+    }
+};
+
+export const updateMatrixFromApprovedContent = async (
+    approvedContent: string,
+    sectionTitle: string,
+    currentMatrix: StrategicMatrix,
+    isDebugMode: boolean
+): Promise<Partial<StrategicMatrix>> => {
+    if (isDebugMode) {
+        await wait(MOCK_DELAY);
+        console.log(`[DEBUG] Simulating matrix update from approved content for: ${sectionTitle}`);
+        // FIX: The `valueProposition` object must conform to the full `CanvasBlock` type. Added missing properties
+        // with empty/zero values, which are handled safely by the merge logic.
+        return {
+            // Return a small, non-destructive update to show it's working
+            valueProposition: {
+                items: [{
+                    item: `Dado Validado de "${sectionTitle}"`,
+                    description: 'Este insight foi extraído pelo modo de depuração a partir do conteúdo que você aprovou.',
+                    severity: 'baixo',
+                    confidence: 'alta'
+                }],
+                description: '',
+                source: '',
+                clarityLevel: 0
+            }
+        };
+    }
+    // Instantiate AI client before each call as per guidelines
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const model = AI_DIAGNOSIS_MODEL; // Use faster model for structured data extraction
+
+    const prompt = `
+    ATUE COMO: Analista de Inteligência de Negócios. Sua tarefa é retroalimentar a Matriz Estratégica.
+    
+    TAREFA: Analise o texto APROVADO da seção "${sectionTitle}" e extraia TODAS as informações estratégicas, quantitativas e qualitativas que podem enriquecer a Matriz Estratégica. Você deve identificar dados que não estavam na matriz original ou que a refinam.
+
+    TEXTO APROVADO PARA ANÁLISE:
+    """
+    ${approvedContent}
+    """
+
+    MATRIZ ESTRATÉGICA ATUAL (PARA CONTEXTO E EVITAR DUPLICAÇÃO):
+    """
+    ${JSON.stringify(currentMatrix, null, 2)}
+    """
+
+    INSTRUÇÕES:
+    1.  **IDENTIFIQUE DADOS-CHAVE:** Procure especificamente por:
+        -   Valores financeiros (investimentos, custos, projeções de receita).
+        -   Nomes de fornecedores, parceiros, concorrentes ou tecnologias.
+        -   Métricas específicas (CAC, LTV, TAM, SAM, SOM).
+        -   Decisões estratégicas, pontos fortes, fraquezas, oportunidades ou ameaças que foram detalhados.
+        -   Segmentos de clientes e suas características.
+        -   Detalhes da proposta de valor.
+    2.  **FORMATE COMO UM UPDATE DE MATRIZ:** Crie um objeto JSON que represente uma atualização para a matriz.
+        -   Para cada insight, crie um \`MatrixItem\` com 'item', 'description', 'severity' ('moderado' por padrão, pois é validado), e 'confidence' ('alta', pois vem de texto aprovado).
+        -   Adicione esses itens aos arrays \`items\` dos blocos apropriados da matriz (ex: \`customerSegments\`, \`costStructure\`, \`swot.strengths\`).
+        -   Se encontrar uma descrição geral para um bloco, atualize o campo \`description\` do bloco.
+    3.  **NÃO REPITA INFORMAÇÃO:** Compare com a matriz atual. Se um item já existe de forma idêntica, não o adicione novamente. O objetivo é ENRIQUECER, não duplicar.
+    4.  **SEJA CONCISO:** Os 'items' devem ser curtos e diretos. A 'description' pode ser mais detalhada.
+
+    RESPONDA ESTRITAMENTE NO FORMATO JSON com a estrutura de uma atualização parcial da \`StrategicMatrix\`. Se nenhum dado novo for encontrado, retorne um objeto JSON vazio {}.
+    `;
+
+    const matrixItemSchema = {
+        type: Type.OBJECT,
+        properties: {
+            item: { type: Type.STRING },
+            description: { type: Type.STRING },
+            severity: { type: Type.STRING },
+            confidence: { type: Type.STRING }
+        },
+        required: ["item", "description", "severity", "confidence"]
+    };
+    
+    const canvasBlockSchema = {
+        type: Type.OBJECT,
+        properties: {
+            items: { type: Type.ARRAY, items: matrixItemSchema },
+            description: { type: Type.STRING },
+        }
+    };
+
+    const swotBlockSchema = {
+        type: Type.OBJECT,
+        properties: {
+            items: { type: Type.ARRAY, items: matrixItemSchema },
+            description: { type: Type.STRING },
+        }
+    };
+
+    const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+            customerSegments: canvasBlockSchema,
+            valueProposition: canvasBlockSchema,
+            channels: canvasBlockSchema,
+            customerRelationships: canvasBlockSchema,
+            revenueStreams: canvasBlockSchema,
+            keyResources: canvasBlockSchema,
+            keyActivities: canvasBlockSchema,
+            keyPartnerships: canvasBlockSchema,
+            costStructure: canvasBlockSchema,
+            swot: {
+                type: Type.OBJECT,
+                properties: {
+                    strengths: swotBlockSchema,
+                    weaknesses: swotBlockSchema,
+                    opportunities: swotBlockSchema,
+                    threats: swotBlockSchema
+                }
+            }
+        }
+    };
+    
+    try {
+        const result = await withRetry<GenerateContentResponse>(
+            () => ai.models.generateContent({
+                model,
+                contents: prompt,
+                config: {
+                    maxOutputTokens: 4096,
+                    responseMimeType: 'application/json',
+                    responseSchema
+                }
+            }),
+            `Atualização da Matriz - ${sectionTitle}`
+        );
+        const json = JSON.parse(cleanJsonString(result.text || "{}"));
+        return json as Partial<StrategicMatrix>;
+    } catch (e) {
+        console.error(`Erro ao atualizar matriz da seção ${sectionTitle}:`, e);
+        return {}; // Return empty update on error
     }
 };
 
@@ -635,38 +1018,41 @@ export const validateCompletedSections = async (
     1.  **Validação Cruzada de Dados:** Para cada seção, verifique se os valores numéricos e insights mencionados no texto são consistentes com a "MATRIZ ESTRATÉGICA". Aponte qualquer discrepância.
     2.  **Aderência à Metodologia:** Verifique se o conteúdo de cada seção atende às diretrizes da "${methodology}".
     3.  **Alinhamento ao Objetivo:** Verifique se o tom e os argumentos de cada seção estão alinhados com o "${goal}".
-    4.  **Feedback Acionável:** Se uma seção falhar, forneça um feedback claro, conciso e construtivo, explicando O QUÊ está errado e COMO corrigir.
+    4.  **Feedback Mandatório:** Para TODAS as seções, você DEVE fornecer um feedback. Se \`isValid\` for \`true\`, o feedback deve ser uma confirmação positiva e concisa (ex: 'Conteúdo claro, completo e alinhado aos objetivos.'). Se for \`false\`, deve ser uma crítica construtiva e acionável.
 
     RESPONDA ESTRITAMENTE NO SEGUINTE FORMATO JSON:
     `;
 
     try {
-        const result = await ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: {
-                maxOutputTokens: 8192,
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        validationResults: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    sectionId: { type: Type.STRING },
-                                    isValid: { type: Type.BOOLEAN },
-                                    feedback: { type: Type.STRING, description: "Feedback construtivo se isValid for false." }
-                                },
-                                required: ["sectionId", "isValid", "feedback"]
+        const result = await withRetry<GenerateContentResponse>(
+            () => ai.models.generateContent({
+                model,
+                contents: prompt,
+                config: {
+                    maxOutputTokens: 8192,
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            validationResults: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        sectionId: { type: Type.STRING },
+                                        isValid: { type: Type.BOOLEAN },
+                                        feedback: { type: Type.STRING, description: "Feedback construtivo se isValid for false, ou confirmação positiva se for true." }
+                                    },
+                                    required: ["sectionId", "isValid", "feedback"]
+                                }
                             }
-                        }
-                    },
-                    required: ["validationResults"]
+                        },
+                        required: ["validationResults"]
+                    }
                 }
-            }
-        });
+            }),
+            "Validação em Lote de Seções"
+        );
 
         const json = JSON.parse(cleanJsonString(result.text || '{}'));
         return Array.isArray(json.validationResults) ? json.validationResults : [];
@@ -676,7 +1062,7 @@ export const validateCompletedSections = async (
         return sectionsToValidate.map(s => ({
             sectionId: s.id,
             isValid: false,
-            feedback: "Ocorreu um erro no serviço de validação. A IA pode estar indisponível. Tente novamente."
+            feedback: "Ocorreu um erro no serviço de validação ou a cota da IA foi excedida. Tente novamente."
         }));
     }
 };

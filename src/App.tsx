@@ -8,7 +8,7 @@ import {
   DIAGNOSIS_STEPS 
 } from '../constants';
 import { 
-  runDiagnosisStep, generateSectionContent, validateCompletedSections 
+  runDiagnosisStep, generateSectionContent, validateCompletedSections, updateMatrixFromApprovedContent, runTopicValidation, implementCorrections 
 } from '../services/gemini';
 import { Dashboard } from '../components/Dashboard';
 import { AuthScreen } from '../components/AuthScreen';
@@ -17,21 +17,27 @@ import { StrategicMatrixViewer } from '../components/StrategicMatrixViewer';
 import { LiveDocumentPreview } from '../components/LiveDocumentPreview';
 import { FinancialChart } from '../components/FinancialChart';
 import { SelectApiKeyModal } from '../components/SelectApiKeyModal';
+import { ValidationModal } from '../components/ValidationModal';
 import { 
   LayoutDashboard, FileText, Settings, PlayCircle, 
-  CheckCircle, AlertCircle, ChevronRight, Save, ArrowLeft, Loader2, Sparkles, BookOpen 
+  CheckCircle, AlertCircle, ChevronRight, Save, ArrowLeft, Loader2, Sparkles, BookOpen, X, Edit, XCircle, Bug
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // FIX: Adiciona chaves de armazenamento para persistência de dados.
 const STORAGE_KEY_USER = 'strategia-ai-user';
 const STORAGE_KEY_PROJECTS = 'strategia-ai-projects';
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const DIAGNOSIS_THROTTLE_DELAY = 1500; // 1.5s delay to stay under 60 RPM limit
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   
   // Diagnosis State
@@ -47,6 +53,19 @@ const App: React.FC = () => {
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [editedContent, setEditedContent] = useState('');
   const [refinementInput, setRefinementInput] = useState('');
+  const [isMatrixModalOpen, setIsMatrixModalOpen] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [isUpdatingMatrix, setIsUpdatingMatrix] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Deep Validation Modal State
+  const [validationModalOpen, setValidationModalOpen] = useState(false);
+  const [validationReport, setValidationReport] = useState<string | null>(null);
+  const [isCorrecting, setIsCorrecting] = useState(false);
+
+  // Debug Mode State
+  const [isDebugMode, setIsDebugMode] = useState(true); // ON by default to prevent quota errors
 
   // Computed Active Project
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
@@ -88,11 +107,22 @@ const App: React.FC = () => {
   }, [projects, user]);
   // --- END OF DATA PERSISTENCE ---
 
+    useEffect(() => {
+        // Quando o usuário seleciona uma nova seção, carrega o conteúdo e entra no modo de visualização.
+        if (activeSection) {
+            setEditedContent(activeSection.content);
+            setIsEditing(false);
+        }
+    }, [selectedSectionId]);
+
   useEffect(() => {
-    if (activeSection) {
-      setEditedContent(activeSection.content);
+    // Auto-resizing textarea logic
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.style.height = 'auto'; // Reset height to recalculate
+      const scrollHeight = textareaRef.current.scrollHeight;
+      textareaRef.current.style.height = `${scrollHeight}px`;
     }
-  }, [activeSection]);
+  }, [editedContent, isEditing]); // Rerun on content or section change
 
   const checkApiKey = async () => {
     if (window.aistudio) {
@@ -243,7 +273,7 @@ const App: React.FC = () => {
   const handleRunDiagnosis = async () => {
     if (!activeProject) return;
 
-    if (!hasApiKey) {
+    if (!hasApiKey && !isDebugMode) {
       if (window.aistudio) {
         setIsApiKeySelectionOpen(true);
         return;
@@ -266,7 +296,7 @@ const App: React.FC = () => {
             const stepName = DIAGNOSIS_STEPS[i].name;
             setDiagnosisLogs(prev => [...prev, `Iniciando etapa ${i + 1}: ${stepName}...`]);
 
-            const result = await runDiagnosisStep(i, context, currentMatrix, assets);
+            const result = await runDiagnosisStep(i, context, currentMatrix, assets, isDebugMode);
             
             if (result.logs && result.logs.length > 0) {
                 setDiagnosisLogs(prev => [...prev, ...result.logs]);
@@ -304,6 +334,11 @@ const App: React.FC = () => {
                  });
                  setDiagnosisLogs(prev => [...prev, `Diagnóstico concluído! Nível de Prontidão: ${result.finalDiagnosis?.overallReadiness}%`]);
             }
+
+            // Throttling: Wait before the next step to avoid hitting rate limits
+            if (i < DIAGNOSIS_STEPS.length - 1 && !isDebugMode) {
+              await wait(DIAGNOSIS_THROTTLE_DELAY);
+            }
         }
     } catch (error) {
         console.error("Erro no diagnóstico:", error);
@@ -316,7 +351,7 @@ const App: React.FC = () => {
   const handleGenerateSection = async (section: PlanSection) => {
       if (!activeProject) return;
 
-      if (!hasApiKey) {
+      if (!hasApiKey && !isDebugMode) {
         if (window.aistudio) {
           setIsApiKeySelectionOpen(true);
           return;
@@ -358,12 +393,12 @@ const App: React.FC = () => {
             section.content, 
             '', '', '', 
             matrix,
-            assets
+            assets,
+            isDebugMode
         );
         updateSection(section.id, { content: newContent, status: SectionStatus.DRAFT });
-        if (selectedSectionId === section.id) {
-          setEditedContent(newContent);
-        }
+        setEditedContent(newContent);
+        setIsEditing(true); // Entra no modo de edição após gerar o conteúdo
       } catch(e) {
         console.error(e);
         updateSection(section.id, { status: SectionStatus.PENDING });
@@ -376,7 +411,7 @@ const App: React.FC = () => {
   const handleRefineSection = async () => {
     if (!activeProject || !activeSection || !refinementInput.trim()) return;
 
-    if (!hasApiKey) {
+    if (!hasApiKey && !isDebugMode) {
       if (window.aistudio) {
         setIsApiKeySelectionOpen(true);
         return;
@@ -408,7 +443,8 @@ const App: React.FC = () => {
         '',
         '',
         matrix,
-        assets
+        assets,
+        isDebugMode
       );
 
       updateSection(activeSection.id, {
@@ -417,6 +453,7 @@ const App: React.FC = () => {
         lastRefinement: refinementInput,
       });
       setEditedContent(newContent);
+      setIsEditing(true); // Continua no modo de edição após refinar
       setRefinementInput('');
     } catch (e) {
       console.error("Erro ao refinar seção:", e);
@@ -428,10 +465,182 @@ const App: React.FC = () => {
   };
 
 
-  const handleSaveContent = () => {
-    if (selectedSectionId && editedContent !== activeSection?.content) {
-      updateSection(selectedSectionId, { content: editedContent });
+  const handleSaveContent = (exitEditMode: boolean = false) => {
+    if (selectedSectionId && activeSection && editedContent !== activeSection.content) {
+      setSaveStatus('saving');
+      updateSection(selectedSectionId, { content: editedContent, status: SectionStatus.DRAFT });
+      
+      setTimeout(() => {
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      }, 500);
     }
+    if(exitEditMode) {
+      setIsEditing(false);
+    }
+  };
+
+    const handleCancelEdit = () => {
+        if(activeSection) {
+            setEditedContent(activeSection.content);
+        }
+        setIsEditing(false);
+    };
+
+  const handleValidateCurrentSection = async () => {
+    if (!activeProject || !activeSection) return;
+
+    if (!hasApiKey && !isDebugMode) {
+      if (window.aistudio) {
+        setIsApiKeySelectionOpen(true);
+        return;
+      }
+      alert("API Key é necessária para a validação.");
+      return;
+    }
+    
+    // 1. Salva o conteúdo atual antes de validar
+    handleSaveContent(false);
+    
+    // 2. Prepara estado para Modal
+    setValidationReport(null);
+    setValidationModalOpen(true);
+    setIsValidating(true);
+    updateSection(activeSection.id, { status: SectionStatus.ANALYZING });
+
+    try {
+        const { contextState } = activeProject.currentData;
+        const { strategicMatrix } = contextState;
+
+        // 3. Executa a validação profunda usando o novo serviço
+        const report = await runTopicValidation(
+            editedContent, // Usa o conteúdo editado
+            activeSection.title,
+            activeSection.description,
+            contextState.methodology,
+            strategicMatrix || null,
+            isDebugMode
+        );
+
+        setValidationReport(report);
+        
+        // 4. Atualiza status da seção (Mantém feedback inline simples, mas o detalhe está no modal)
+        updateSection(activeSection.id, {
+            status: SectionStatus.REVIEW_ALERT,
+            validationFeedback: "Auditoria técnica concluída. Veja o relatório detalhado.",
+        });
+
+    } catch (e) {
+        console.error("Erro na validação:", e);
+        setValidationReport("Ocorreu um erro crítico ao gerar o relatório. Tente novamente.");
+        updateSection(activeSection.id, { status: SectionStatus.DRAFT });
+    } finally {
+        setIsValidating(false);
+    }
+  };
+
+  const handleImplementCorrections = async () => {
+      if (!activeProject || !activeSection || !validationReport) return;
+      
+      setIsCorrecting(true);
+
+      try {
+          const context = getFullContext({ maxLength: 100000 });
+          const { strategicMatrix } = activeProject.currentData.contextState;
+
+          // Chama a IA para reescrever o texto baseada no relatório de validação
+          const correctedContent = await implementCorrections(
+              activeSection.content,
+              validationReport,
+              activeSection.title,
+              activeSection.description,
+              context,
+              strategicMatrix || null,
+              isDebugMode
+          );
+
+          // Atualiza o conteúdo da seção
+          updateSection(activeSection.id, {
+              content: correctedContent,
+              status: SectionStatus.DRAFT, // Volta para draft para revisão humana
+              validationFeedback: "Correções implementadas pela IA. Por favor, revise."
+          });
+          
+          setEditedContent(correctedContent);
+          
+          // Fecha o modal e mostra sucesso
+          setValidationModalOpen(false);
+          // Opcional: Mostrar um toast de sucesso
+          
+      } catch (error) {
+          console.error("Erro ao implementar correções:", error);
+          alert("Erro ao aplicar correções automáticas.");
+      } finally {
+          setIsCorrecting(false);
+      }
+  };
+
+    const handleApproveSection = async (section: PlanSection) => {
+        if (!activeProject || isUpdatingMatrix) return;
+        
+        setIsUpdatingMatrix(true);
+        
+        updateSection(section.id, { status: SectionStatus.APPROVED });
+
+        try {
+            const matrixUpdate = await updateMatrixFromApprovedContent(
+                section.content,
+                section.title,
+                activeProject.currentData.contextState.strategicMatrix || DEFAULT_STRATEGIC_MATRIX,
+                isDebugMode
+            );
+
+            if (Object.keys(matrixUpdate).length === 0) {
+                console.log("Nenhum dado novo encontrado para atualizar a matriz.");
+                setIsUpdatingMatrix(false);
+                return;
+            }
+
+            const currentMatrix = activeProject.currentData.contextState.strategicMatrix || DEFAULT_STRATEGIC_MATRIX;
+            const newMatrix = JSON.parse(JSON.stringify(currentMatrix));
+
+            const mergeBlock = (targetBlock: any, sourceBlock: any) => {
+                if (!sourceBlock || !targetBlock) return;
+                if (sourceBlock?.items) {
+                    targetBlock.items.push(...sourceBlock.items);
+                }
+                if (sourceBlock?.description) {
+                    targetBlock.description = sourceBlock.description;
+                }
+            };
+
+            Object.keys(matrixUpdate).forEach(key => {
+                if (key === 'swot' && matrixUpdate.swot) {
+                    Object.keys(matrixUpdate.swot).forEach(swotKey => {
+                        const target = newMatrix.swot[swotKey as keyof typeof newMatrix.swot];
+                        const source = matrixUpdate.swot![swotKey as keyof typeof matrixUpdate.swot];
+                        if(target && source) mergeBlock(target, source);
+                    });
+                } else if (newMatrix[key as keyof StrategicMatrix]) {
+                     const target = newMatrix[key as keyof StrategicMatrix];
+                     const source = matrixUpdate[key as keyof StrategicMatrix];
+                     if(target && source) mergeBlock(target, source);
+                }
+            });
+            
+            handleUpdateContext({ strategicMatrix: newMatrix });
+
+        } catch (e) {
+            console.error("Erro ao retroalimentar a matriz:", e);
+        } finally {
+            setIsUpdatingMatrix(false);
+        }
+    };
+
+
+  const handleShowPreview = () => {
+    handleSaveContent();
+    setShowPreview(true);
   };
 
   // --- RENDERING ---
@@ -476,7 +685,7 @@ const App: React.FC = () => {
             </button>
           </div>
           <button 
-            onClick={() => setShowPreview(true)} 
+            onClick={handleShowPreview} 
             className="text-gray-500 hover:text-blue-600 p-2"
             title="Visualizar Documento Final"
           >
@@ -493,7 +702,9 @@ const App: React.FC = () => {
               <div className="flex justify-between items-start mb-1">
                 <span className="text-xs font-bold text-gray-500">{section.id}</span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium 
-                  ${section.status === SectionStatus.COMPLETED || section.status === SectionStatus.APPROVED ? 'bg-green-100 text-green-700' : 
+                  ${section.status === SectionStatus.APPROVED ? 'bg-green-100 text-green-700' :
+                    section.status === SectionStatus.COMPLETED ? 'bg-blue-100 text-blue-700' : 
+                    section.status === SectionStatus.REVIEW_ALERT ? 'bg-red-100 text-red-700' :
                     section.status === SectionStatus.DRAFT ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
                   {section.status}
                 </span>
@@ -518,31 +729,73 @@ const App: React.FC = () => {
              ) : (
                <button 
                 onClick={() => activeSection && handleGenerateSection(activeSection)}
-                disabled={!activeSection || isGenerating}
-                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium shadow-sm transition-all"
+                disabled={!activeSection || isGenerating || isValidating}
+                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium shadow-sm transition-all disabled:bg-blue-300 disabled:cursor-not-allowed"
                >
                  <Sparkles className="w-4 h-4" /> 
                  {activeSection?.content ? 'Regerar do Zero' : 'Gerar com IA'}
                </button>
              )}
              <span className="text-gray-300">|</span>
+             {isEditing ? (
+                <>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => handleSaveContent(true)}
+                            disabled={isValidating || isGenerating || saveStatus === 'saving'}
+                            className="flex items-center gap-2 text-green-600 hover:text-green-800 text-sm font-medium disabled:opacity-50"
+                        >
+                            {saveStatus === 'saving' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                            Salvar Alterações
+                        </button>
+                        {saveStatus === 'saved' && (
+                            <span className="text-sm text-green-600 flex items-center gap-1 animate-in fade-in duration-300">
+                            <CheckCircle className="w-4 h-4" />
+                            Salvo!
+                            </span>
+                        )}
+                    </div>
+                    <button
+                        onClick={handleCancelEdit}
+                        className="flex items-center gap-2 text-red-600 hover:text-red-800 text-sm font-medium"
+                    >
+                        <XCircle className="w-4 h-4" />
+                        Cancelar
+                    </button>
+                </>
+             ) : (
+                <button
+                    onClick={() => setIsEditing(true)}
+                    disabled={!activeSection}
+                    className="flex items-center gap-2 text-gray-600 hover:text-gray-900 text-sm font-medium disabled:opacity-50"
+                >
+                    <Edit className="w-4 h-4" />
+                    Editar Texto
+                </button>
+             )}
              <button 
-                onClick={handleSaveContent}
-                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 text-sm font-medium"
+                onClick={handleValidateCurrentSection}
+                disabled={!activeSection || !activeSection.content || isValidating || isGenerating || isEditing}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                title={isEditing ? "Salve ou cancele a edição para validar" : "A IA irá auditar este texto, verificando a coerência com a metodologia (SEBRAE/BRDE), os dados do diagnóstico e os objetivos do projeto. O resultado será exibido como um feedback."}
              >
-               <Save className="w-4 h-4" /> Salvar
+               {isValidating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+               Validar
              </button>
            </div>
            
            <div className="flex items-center gap-2">
              <button 
-               onClick={() => activeSection && updateSection(activeSection.id, { status: SectionStatus.APPROVED })}
-               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+               onClick={() => activeSection && handleApproveSection(activeSection)}
+               disabled={isUpdatingMatrix || isEditing}
+               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:cursor-not-allowed
                  ${activeSection?.status === SectionStatus.APPROVED 
                    ? 'bg-green-100 text-green-700' 
                    : 'text-gray-500 hover:bg-green-50 hover:text-green-600'}`}
+                title={isEditing ? "Salve ou cancele a edição para aprovar" : ""}
              >
-               <CheckCircle className="w-4 h-4" /> Aprovar
+               {isUpdatingMatrix ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+               {isUpdatingMatrix ? 'Aprendendo...' : 'Aprovar'}
              </button>
            </div>
         </div>
@@ -550,16 +803,37 @@ const App: React.FC = () => {
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-6">
           {activeSection ? (
-            <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 min-h-[500px] flex flex-col">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
                <div className="p-6 border-b border-gray-100">
                  <h1 className="text-2xl font-bold text-gray-800 mb-2">{activeSection.title}</h1>
                  <p className="text-sm text-gray-500">{activeSection.description}</p>
-                 {activeSection.validationFeedback && (
-                   <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700 flex items-start gap-2">
-                     <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                     <p>{activeSection.validationFeedback}</p>
-                   </div>
-                 )}
+                 {activeSection.validationFeedback && (activeSection.status === SectionStatus.REVIEW_ALERT || activeSection.status === SectionStatus.COMPLETED) && (
+                    <div className={`mt-4 p-3 border rounded-lg text-sm flex items-start gap-2 cursor-pointer transition-colors
+                        ${activeSection.status === SectionStatus.REVIEW_ALERT 
+                            ? 'bg-red-50 border-red-200 text-red-800 hover:bg-red-100' 
+                            : 'bg-green-50 border-green-200 text-green-800 hover:bg-green-100'}`
+                    }
+                    onClick={() => {
+                        // Reabre o modal se houver um relatório (simulado)
+                        // Em uma implementação real completa, persistiríamos o relatório no estado da seção
+                        if (validationReport) setValidationModalOpen(true);
+                        else handleValidateCurrentSection(); // Ou revalida
+                    }}
+                    >
+                        {activeSection.status === SectionStatus.REVIEW_ALERT ? (
+                            <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+                        ) : (
+                            <CheckCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+                        )}
+                        <div>
+                            <strong className="font-bold">
+                                {activeSection.status === SectionStatus.REVIEW_ALERT ? 'Feedback da IA (Ajustes Necessários):' : 'Feedback da IA (Validação Aprovada):'}
+                            </strong>
+                            <p>{activeSection.validationFeedback}</p>
+                            <span className="text-xs underline mt-1 block">Clique para ver o relatório completo</span>
+                        </div>
+                    </div>
+                  )}
                </div>
 
                 {activeSection.content && (
@@ -570,13 +844,13 @@ const App: React.FC = () => {
                        value={refinementInput}
                        onChange={(e) => setRefinementInput(e.target.value)}
                        onKeyDown={(e) => e.key === 'Enter' && handleRefineSection()}
-                       disabled={isGenerating}
+                       disabled={isGenerating || isValidating}
                        className="flex-grow w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-shadow"
                        placeholder="Peça para a IA refinar este texto..."
                      />
                      <button
                        onClick={handleRefineSection}
-                       disabled={isGenerating || !refinementInput.trim()}
+                       disabled={isGenerating || isValidating || !refinementInput.trim()}
                        className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium shadow-sm transition-all disabled:bg-purple-300 disabled:cursor-not-allowed"
                        title="Refinar com base na instrução"
                      >
@@ -590,14 +864,25 @@ const App: React.FC = () => {
                  </div>
                )}
 
-               <div className="flex-1 p-0 relative">
-                 <textarea
-                   value={editedContent}
-                   onChange={(e) => setEditedContent(e.target.value)}
-                   onBlur={handleSaveContent}
-                   className="w-full h-full p-6 resize-none focus:outline-none text-gray-800 leading-relaxed"
-                   placeholder="O conteúdo desta seção aparecerá aqui..."
-                 />
+               <div className="p-6 min-h-[300px]">
+                {isEditing ? (
+                    <textarea
+                        ref={textareaRef}
+                        value={editedContent}
+                        onChange={(e) => setEditedContent(e.target.value)}
+                        onBlur={() => handleSaveContent(false)}
+                        className="w-full p-0 resize-none focus:outline-none text-gray-800 leading-relaxed overflow-y-hidden"
+                        placeholder="O conteúdo desta seção aparecerá aqui..."
+                        rows={10}
+                        autoFocus
+                    />
+                ) : (
+                    <div className="prose prose-slate max-w-none text-justify">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {editedContent || "Esta seção ainda não possui conteúdo. Clique em 'Gerar com IA' ou 'Editar Texto' para começar."}
+                        </ReactMarkdown>
+                    </div>
+                )}
                </div>
             </div>
           ) : (
@@ -615,6 +900,29 @@ const App: React.FC = () => {
           <h3 className="font-bold text-gray-700 flex items-center gap-2">
             <Settings className="w-4 h-4" /> Ferramentas do Projeto
           </h3>
+        </div>
+        
+        {/* DEBUG MODE TOGGLE */}
+        <div className="p-3 border-b border-gray-200 bg-yellow-50 text-yellow-800">
+            <div className="flex items-center justify-between">
+                <label htmlFor="debug-toggle" className="text-sm font-bold flex items-center gap-2">
+                    <Bug className="w-4 h-4" />
+                    Modo de Depuração
+                </label>
+                <div 
+                  onClick={() => setIsDebugMode(!isDebugMode)} 
+                  className={`relative w-12 h-6 rounded-full transition-colors duration-300 cursor-pointer ${isDebugMode ? 'bg-yellow-400' : 'bg-gray-300'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isDebugMode ? 'translate-x-6' : 'translate-x-0'}`}
+                  />
+                </div>
+            </div>
+            <p className="text-xs mt-2">
+                {isDebugMode 
+                    ? "Ativado: Chamadas à IA são simuladas para evitar uso de cota. O conteúdo gerado não é real."
+                    : "Desativado: O sistema está usando sua API Key. O uso será cobrado conforme seu plano."}
+            </p>
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -659,6 +967,7 @@ const App: React.FC = () => {
           {/* Strategic Matrix Viewer */}
           <StrategicMatrixViewer 
             matrix={activeProject.currentData.contextState.strategicMatrix || DEFAULT_STRATEGIC_MATRIX}
+            onExpand={() => setIsMatrixModalOpen(true)}
           />
 
           {/* Context Manager */}
@@ -675,6 +984,17 @@ const App: React.FC = () => {
         </div>
       </div>
 
+      {/* Validation Modal */}
+      <ValidationModal 
+        isOpen={validationModalOpen} 
+        onClose={() => setValidationModalOpen(false)}
+        report={validationReport}
+        isLoading={isValidating}
+        sectionTitle={activeSection?.title || ''}
+        onImplementCorrections={handleImplementCorrections}
+        isCorrecting={isCorrecting}
+      />
+
       {/* API Key Modal */}
       {isApiKeySelectionOpen && (
         <SelectApiKeyModal 
@@ -684,6 +1004,39 @@ const App: React.FC = () => {
             setHasApiKey(true);
           }} 
         />
+      )}
+
+      {/* Matrix Fullscreen Modal */}
+      {isMatrixModalOpen && (
+        <div 
+            className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in"
+            onClick={() => setIsMatrixModalOpen(false)}
+        >
+          <div 
+            className="bg-slate-50 rounded-xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-slate-200 flex justify-between items-center flex-shrink-0 bg-white rounded-t-xl">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <LayoutDashboard className="w-5 h-5 text-blue-600" />
+                    Matriz Estratégica - Visão Completa
+                </h2>
+                <button 
+                    onClick={() => setIsMatrixModalOpen(false)}
+                    className="p-2 rounded-full text-slate-400 hover:bg-slate-100"
+                    title="Fechar"
+                >
+                    <X className="w-5 h-5" />
+                </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+                <StrategicMatrixViewer
+                matrix={activeProject.currentData.contextState.strategicMatrix || DEFAULT_STRATEGIC_MATRIX}
+                isModalView={true}
+                />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { Upload, FileText, Image as ImageIcon, Trash2, File, Loader2 } from 'lucide-react';
-import { AppContextState, UploadedFile, ProjectAsset } from '../types';
+import { Upload, FileText, Image as ImageIcon, Trash2, File, Loader2, UploadCloud } from 'lucide-react';
+import { AppContextState, UploadedFile, ProjectAsset, StrategicMatrix } from '../types';
 
 interface ContextManagerProps {
   state: AppContextState;
@@ -11,6 +11,7 @@ export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate 
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const matrixInputRef = useRef<HTMLInputElement>(null);
 
   const convertImageToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -165,6 +166,34 @@ export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate 
     }
   };
 
+  const handleMatrixImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const matrix = JSON.parse(text);
+        
+        // Basic validation
+        if (matrix.swot && matrix.customerSegments && matrix.valueProposition) {
+          onUpdate({ strategicMatrix: matrix as StrategicMatrix });
+          alert(`Matriz Estratégica "${file.name}" importada com sucesso!`);
+        } else {
+          alert('Arquivo JSON inválido ou não corresponde à estrutura de uma Matriz Estratégica.');
+        }
+
+      } catch (err) {
+        console.error("Erro ao importar matriz:", err);
+        alert(`Erro ao processar o arquivo JSON. Verifique se o formato está correto.`);
+      } finally {
+         if (matrixInputRef.current) matrixInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const removeFile = (index: number) => {
     const fileToRemove = state.uploadedFiles[index];
     const newFiles = state.uploadedFiles.filter((_, i) => i !== index);
@@ -212,6 +241,23 @@ export const ContextManager: React.FC<ContextManagerProps> = ({ state, onUpdate 
                     <span className="text-xs text-slate-400 mt-1">PDF, TXT, MD, CSV, JSON, PNG, JPG</span>
                 </div>
             )}
+        </div>
+
+        <div className="mt-3">
+             <input 
+                type="file" 
+                ref={matrixInputRef} 
+                className="hidden" 
+                onChange={handleMatrixImport}
+                accept=".json"
+            />
+            <button 
+                onClick={() => matrixInputRef.current?.click()}
+                className="w-full flex items-center justify-center gap-2 text-sm text-slate-600 font-medium py-2 bg-slate-100 hover:bg-slate-200 rounded-lg border border-slate-200 transition-colors"
+            >
+                <UploadCloud className="w-4 h-4" />
+                Importar Matriz (.json)
+            </button>
         </div>
       </div>
 
