@@ -11,7 +11,6 @@ const AI_WRITER_MODEL = "gemini-3-pro-preview";
 // --- RETRY LOGIC CONFIGURATION ---
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 2000; // 2 seconds
-const MOCK_DELAY = 800; // ms for debug mode simulation
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -199,60 +198,8 @@ export const runDiagnosisStep = async (
     stepIndex: number,
     fullContext: string,
     currentMatrix: StrategicMatrix,
-    assets: ProjectAsset[],
-    isDebugMode: boolean
+    assets: ProjectAsset[]
 ): Promise<DiagnosisStepResult> => {
-    if (isDebugMode) {
-        await wait(200); // Faster mock delay for diagnosis loop
-        const step = DIAGNOSIS_STEPS[stepIndex];
-        const mockResult: DiagnosisStepResult = {
-            logs: [
-                `[DEBUG] Análise simulada para: ${step.name}.`,
-                `[DEBUG] Insight A encontrado.`,
-                `[DEBUG] Insight B encontrado.`
-            ],
-            matrixUpdate: {},
-        };
-        // Add a mock matrix item to a target block
-        if (step.matrixTargets.length > 0) {
-            const target = step.matrixTargets[0]; // e.g., 'customerSegments' or 'swot.strengths'
-            const mockItem: MatrixItem = {
-                item: `Item Simulado de ${step.name}`,
-                description: 'Esta é uma descrição gerada pelo modo de depuração.',
-                severity: 'moderado',
-                confidence: 'alta'
-            };
-            if (target.startsWith('swot.')) {
-                const swotKey = target.split('.')[1] as keyof StrategicMatrix['swot'];
-                // FIX: The type `Partial<StrategicMatrix>` is shallow. The nested `swot` property is expected
-                // to be a full `StrategicMatrix['swot']` object. We cast the partial update to this type
-                // to satisfy the compiler, as the runtime logic correctly handles a partial object.
-                mockResult.matrixUpdate = {
-                    swot: {
-                        [swotKey]: { items: [mockItem], description: 'Descrição simulada.', source: 'debug-mode', clarityLevel: 75 }
-                    } as StrategicMatrix['swot']
-                };
-            } else {
-                 mockResult.matrixUpdate = {
-                    [target]: { items: [mockItem], description: 'Descrição simulada.', source: 'debug-mode', clarityLevel: 75 }
-                 };
-            }
-        }
-
-        if (stepIndex === 9) { // Final step
-            mockResult.finalDiagnosis = {
-                overallReadiness: 88,
-                gaps: [{
-                    id: 'debug-gap-1',
-                    description: 'Lacuna simulada identificada pelo modo de depuração.',
-                    aiFeedback: 'Recomenda-se detalhar este ponto.',
-                    severityLevel: 'B'
-                }]
-            };
-        }
-        return mockResult;
-    }
-
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = AI_DIAGNOSIS_MODEL;
@@ -473,14 +420,8 @@ export const generateSectionContent = async (
     refinementContext: string = "",
     childSectionsContent: string = "",
     strategicMatrix: StrategicMatrix | undefined,
-    assets: ProjectAsset[],
-    isDebugMode: boolean
+    assets: ProjectAsset[]
 ): Promise<string> => {
-    if (isDebugMode) {
-        await wait(MOCK_DELAY);
-        return `## Conteúdo Simulado para "${sectionTitle}"\n\nEste é um texto gerado pelo **Modo de Depuração** para evitar o uso da sua cota de API. A IA real não foi chamada.\n\n**Instruções Recebidas:**\n> ${sectionDescription.substring(0, 200)}...\n\n- **Ponto Chave 1:** Análise simulada do primeiro ponto-chave com base no contexto do projeto.\n- **Ponto Chave 2:** Desenvolvimento do segundo ponto, detalhando os aspectos financeiros simulados.\n- **Ponto Chave 3:** Conclusão simulada, alinhada com o objetivo de ${goalContext}.\n\n| Métrica Simulada | Valor Simulado |\n|---|---|\n| Crescimento Anual | 15% |\n| Retorno | 24 meses |\n\n> Para desativar este modo e usar sua API Key real, utilize o botão de alternância no painel direito.`;
-    }
-
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = AI_WRITER_MODEL;
@@ -583,14 +524,8 @@ export const runTopicValidation = async (
     topicTitle: string,
     topicDescription: string,
     methodology: string,
-    strategicMatrix: StrategicMatrix | null,
-    isDebugMode: boolean
+    strategicMatrix: StrategicMatrix | null
 ): Promise<string> => {
-    if (isDebugMode) {
-        await wait(MOCK_DELAY);
-        return `# VALIDAÇÃO SIMULADA: ${topicTitle}\n\n## 1. Metodologia ${methodology}\n**Correções necessárias (Simulado):**\n- O tópico parece coerente com a estrutura geral, mas falta aprofundamento no item X, conforme exigido pela metodologia.\n\n## 2. Requisitos BRDE\n**Análise (Simulado):**\n- **Clareza de escopo:** SIM. O escopo está bem definido.\n- **Sustentabilidade financeira:** NÃO. Os números apresentados parecem otimistas e não estão ancorados em dados da Matriz.\n\n## 3. Coerência com a Matriz\n**Divergências encontradas (Simulado):**\n- O texto cita uma projeção de receita de R$500k no primeiro ano, mas a Matriz indica R$350k. É preciso alinhar.\n\n## 5. Como corrigir\n1.  Ajuste a projeção de receita para R$350k, conforme a Matriz.\n2.  Inclua uma seção detalhando a análise de concorrência citada na metodologia.\n\n> Este relatório foi gerado pelo **Modo de Depuração**. Nenhuma análise real foi feita.`;
-    }
-
     // Instantiate AI client
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = AI_WRITER_MODEL; // Using Pro model for better reasoning
@@ -712,14 +647,8 @@ export const implementCorrections = async (
     sectionTitle: string,
     sectionDescription: string,
     fullContext: string,
-    strategicMatrix: StrategicMatrix | null,
-    isDebugMode: boolean
+    strategicMatrix: StrategicMatrix | null
 ): Promise<string> => {
-    if (isDebugMode) {
-        await wait(MOCK_DELAY);
-        return `## Conteúdo Corrigido Simulado para "${sectionTitle}"\n\nEste texto foi reescrito pelo **Modo de Depuração** com base no relatório de validação simulado.\n\n**Principais Alterações (Simuladas):**\n- Os números foram ajustados para refletir a coerência com a Matriz Estratégica.\n- Foi adicionada uma nova seção para cobrir o ponto que faltava na metodologia.\n- A linguagem foi refinada para um tom mais profissional e alinhado ao BRDE.\n\n${currentContent.substring(0, 300)}... (trecho do conteúdo original mantido para contexto).`;
-    }
-
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = AI_WRITER_MODEL;
     const matrixContext = strategicMatrix ? JSON.stringify(strategicMatrix) : "Matriz não disponível.";
@@ -851,29 +780,8 @@ export const generateProjectImage = async (promptDescription: string): Promise<s
 export const updateMatrixFromApprovedContent = async (
     approvedContent: string,
     sectionTitle: string,
-    currentMatrix: StrategicMatrix,
-    isDebugMode: boolean
+    currentMatrix: StrategicMatrix
 ): Promise<Partial<StrategicMatrix>> => {
-    if (isDebugMode) {
-        await wait(MOCK_DELAY);
-        console.log(`[DEBUG] Simulating matrix update from approved content for: ${sectionTitle}`);
-        // FIX: The `valueProposition` object must conform to the full `CanvasBlock` type. Added missing properties
-        // with empty/zero values, which are handled safely by the merge logic.
-        return {
-            // Return a small, non-destructive update to show it's working
-            valueProposition: {
-                items: [{
-                    item: `Dado Validado de "${sectionTitle}"`,
-                    description: 'Este insight foi extraído pelo modo de depuração a partir do conteúdo que você aprovou.',
-                    severity: 'baixo',
-                    confidence: 'alta'
-                }],
-                description: '',
-                source: '',
-                clarityLevel: 0
-            }
-        };
-    }
     // Instantiate AI client before each call as per guidelines
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = AI_DIAGNOSIS_MODEL; // Use faster model for structured data extraction

@@ -20,7 +20,7 @@ import { SelectApiKeyModal } from '../components/SelectApiKeyModal';
 import { ValidationModal } from '../components/ValidationModal';
 import { 
   LayoutDashboard, FileText, Settings, PlayCircle, 
-  CheckCircle, AlertCircle, ChevronRight, Save, ArrowLeft, Loader2, Sparkles, BookOpen, X, Edit, XCircle, Bug
+  CheckCircle, AlertCircle, ChevronRight, Save, ArrowLeft, Loader2, Sparkles, BookOpen, X, Edit, XCircle
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -63,9 +63,6 @@ const App: React.FC = () => {
   const [validationModalOpen, setValidationModalOpen] = useState(false);
   const [validationReport, setValidationReport] = useState<string | null>(null);
   const [isCorrecting, setIsCorrecting] = useState(false);
-
-  // Debug Mode State
-  const [isDebugMode, setIsDebugMode] = useState(true); // ON by default to prevent quota errors
 
   // Computed Active Project
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
@@ -273,7 +270,7 @@ const App: React.FC = () => {
   const handleRunDiagnosis = async () => {
     if (!activeProject) return;
 
-    if (!hasApiKey && !isDebugMode) {
+    if (!hasApiKey) {
       if (window.aistudio) {
         setIsApiKeySelectionOpen(true);
         return;
@@ -296,7 +293,7 @@ const App: React.FC = () => {
             const stepName = DIAGNOSIS_STEPS[i].name;
             setDiagnosisLogs(prev => [...prev, `Iniciando etapa ${i + 1}: ${stepName}...`]);
 
-            const result = await runDiagnosisStep(i, context, currentMatrix, assets, isDebugMode);
+            const result = await runDiagnosisStep(i, context, currentMatrix, assets);
             
             if (result.logs && result.logs.length > 0) {
                 setDiagnosisLogs(prev => [...prev, ...result.logs]);
@@ -336,7 +333,7 @@ const App: React.FC = () => {
             }
 
             // Throttling: Wait before the next step to avoid hitting rate limits
-            if (i < DIAGNOSIS_STEPS.length - 1 && !isDebugMode) {
+            if (i < DIAGNOSIS_STEPS.length - 1) {
               await wait(DIAGNOSIS_THROTTLE_DELAY);
             }
         }
@@ -351,7 +348,7 @@ const App: React.FC = () => {
   const handleGenerateSection = async (section: PlanSection) => {
       if (!activeProject) return;
 
-      if (!hasApiKey && !isDebugMode) {
+      if (!hasApiKey) {
         if (window.aistudio) {
           setIsApiKeySelectionOpen(true);
           return;
@@ -393,8 +390,7 @@ const App: React.FC = () => {
             section.content, 
             '', '', '', 
             matrix,
-            assets,
-            isDebugMode
+            assets
         );
         updateSection(section.id, { content: newContent, status: SectionStatus.DRAFT });
         setEditedContent(newContent);
@@ -411,7 +407,7 @@ const App: React.FC = () => {
   const handleRefineSection = async () => {
     if (!activeProject || !activeSection || !refinementInput.trim()) return;
 
-    if (!hasApiKey && !isDebugMode) {
+    if (!hasApiKey) {
       if (window.aistudio) {
         setIsApiKeySelectionOpen(true);
         return;
@@ -443,8 +439,7 @@ const App: React.FC = () => {
         '',
         '',
         matrix,
-        assets,
-        isDebugMode
+        assets
       );
 
       updateSection(activeSection.id, {
@@ -490,7 +485,7 @@ const App: React.FC = () => {
   const handleValidateCurrentSection = async () => {
     if (!activeProject || !activeSection) return;
 
-    if (!hasApiKey && !isDebugMode) {
+    if (!hasApiKey) {
       if (window.aistudio) {
         setIsApiKeySelectionOpen(true);
         return;
@@ -518,8 +513,7 @@ const App: React.FC = () => {
             activeSection.title,
             activeSection.description,
             contextState.methodology,
-            strategicMatrix || null,
-            isDebugMode
+            strategicMatrix || null
         );
 
         setValidationReport(report);
@@ -555,8 +549,7 @@ const App: React.FC = () => {
               activeSection.title,
               activeSection.description,
               context,
-              strategicMatrix || null,
-              isDebugMode
+              strategicMatrix || null
           );
 
           // Atualiza o conteúdo da seção
@@ -591,8 +584,7 @@ const App: React.FC = () => {
             const matrixUpdate = await updateMatrixFromApprovedContent(
                 section.content,
                 section.title,
-                activeProject.currentData.contextState.strategicMatrix || DEFAULT_STRATEGIC_MATRIX,
-                isDebugMode
+                activeProject.currentData.contextState.strategicMatrix || DEFAULT_STRATEGIC_MATRIX
             );
 
             if (Object.keys(matrixUpdate).length === 0) {
@@ -900,29 +892,6 @@ const App: React.FC = () => {
           <h3 className="font-bold text-gray-700 flex items-center gap-2">
             <Settings className="w-4 h-4" /> Ferramentas do Projeto
           </h3>
-        </div>
-        
-        {/* DEBUG MODE TOGGLE */}
-        <div className="p-3 border-b border-gray-200 bg-yellow-50 text-yellow-800">
-            <div className="flex items-center justify-between">
-                <label htmlFor="debug-toggle" className="text-sm font-bold flex items-center gap-2">
-                    <Bug className="w-4 h-4" />
-                    Modo de Depuração
-                </label>
-                <div 
-                  onClick={() => setIsDebugMode(!isDebugMode)} 
-                  className={`relative w-12 h-6 rounded-full transition-colors duration-300 cursor-pointer ${isDebugMode ? 'bg-yellow-400' : 'bg-gray-300'}`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isDebugMode ? 'translate-x-6' : 'translate-x-0'}`}
-                  />
-                </div>
-            </div>
-            <p className="text-xs mt-2">
-                {isDebugMode 
-                    ? "Ativado: Chamadas à IA são simuladas para evitar uso de cota. O conteúdo gerado não é real."
-                    : "Desativado: O sistema está usando sua API Key. O uso será cobrado conforme seu plano."}
-            </p>
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
