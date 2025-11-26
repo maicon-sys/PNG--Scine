@@ -91,9 +91,6 @@ export const runDiagnosisStep = async (
         step.matrixTargets.forEach(target => {
             if (target.startsWith('swot.')) {
                 const swotKey = target.split('.')[1] as 'strengths' | 'weaknesses' | 'opportunities' | 'threats';
-                // FIX: The type of `swot` is a complete object, but the logic builds it property by property.
-                // Casting the initial empty object to the expected type allows this incremental update pattern to work
-                // without causing a type error. The consuming merge logic handles this partial object correctly.
                 if (!matrixUpdate.swot) {
                     matrixUpdate.swot = {} as StrategicMatrix['swot'];
                 }
@@ -141,42 +138,116 @@ export const generateSectionContent = async (
 export const runTopicValidation = async (
     topicText: string,
     topicTitle: string,
-    // ... other params
-    ...args: any[]
+    description: string,
+    methodology: string,
+    matrix: StrategicMatrix | null
 ): Promise<string> => {
     await wait(800 + Math.random() * 400);
 
-    const hasIssues = topicText.length < 100; // Simple heuristic for demo
+    const corrections: string[] = [];
+    const brdeAnalysis: { name: string; status: 'SIM' | 'NÃO' | 'PARCIAL'; reason: string }[] = [];
+    let matrixDivergences: string[] = [];
+
+    // 1. Check for quantitative data (numbers, currency symbols)
+    if (!/(\d|R\$|%)/.test(topicText)) {
+        corrections.push(
+            '**Quantificar:** Substitua termos vagos como "muitos clientes" por números estimados, mesmo que baseados em premissas (ex: "estimamos atingir 5.000 assinantes no primeiro ano...").'
+        );
+        brdeAnalysis.push({ name: 'Indicadores confiáveis', status: 'NÃO', reason: 'Faltam dados numéricos para suportar as afirmações.' });
+    } else {
+        brdeAnalysis.push({ name: 'Indicadores confiáveis', status: 'SIM', reason: 'O texto apresenta dados quantitativos.' });
+    }
+    
+    // 2. Check for structure (Markdown table)
+    if (!/\|.*\|/.test(topicText)) {
+         corrections.push(
+            '**Estruturar:** Use uma tabela Markdown para comparar concorrentes, apresentar cronogramas ou detalhar dados financeiros. Tabelas aumentam a clareza.'
+        );
+    }
+
+    // 3. Check coherence with Matrix (if available)
+    if (matrix && matrix.swot && matrix.swot.weaknesses.items.length > 0) {
+        const firstWeakness = matrix.swot.weaknesses.items[0];
+        const keywords = firstWeakness.item.split(/\s+/).slice(0, 2); 
+        const foundKeyword = keywords.some(kw => new RegExp(kw, 'i').test(topicText));
+        
+        if (!foundKeyword) {
+            matrixDivergences.push(
+                `O texto não parece abordar a fraqueza identificada na Matriz Estratégica: **"${firstWeakness.item}"**. É importante que o plano demonstre como as fraquezas serão mitigadas.`
+            );
+        }
+    }
+    
+    // 4. General checks for depth
+    if (topicText.length < 300) { // Increased threshold for depth
+        corrections.push(
+            '**Aprofundar:** O conteúdo está superficial. Expanda a análise com mais detalhes, exemplos e justificativas para cada ponto abordado.'
+        );
+         brdeAnalysis.push({ name: 'Justificativa consistente', status: 'NÃO', reason: 'A argumentação é breve e carece de profundidade.' });
+    } else {
+         brdeAnalysis.push({ name: 'Justificativa consistente', status: 'SIM', reason: 'A argumentação é bem desenvolvida.' });
+    }
+    
+    // Add other BRDE checks as defaults
+    brdeAnalysis.push({ name: 'Clareza de escopo', status: 'SIM', reason: 'O escopo do tópico está bem definido.' });
+    brdeAnalysis.push({ name: 'Inovação', status: 'SIM', reason: 'O aspecto de inovação está presente.' });
+    brdeAnalysis.push({ name: 'Acessibilidade', status: 'PARCIAL', reason: 'Acessibilidade é mencionada, mas pode ser mais detalhada.' });
+
+
+    // --- Build the final report ---
+    if (corrections.length === 0 && matrixDivergences.length === 0) {
+        // Validation Passed!
+        return `
+# VALIDAÇÃO DO TÓPICO: ${topicTitle}
+
+## 1. Metodologia SEBRAE
+**Status: APROVADO**
+- O conteúdo atende aos requisitos de profundidade, estrutura e quantificação esperados.
+
+## 2. Requisitos BRDE
+**Status: CONFORME**
+- **Clareza de escopo:** SIM - O escopo está claro e bem definido.
+- **Justificativa consistente:** SIM - As afirmações são bem suportadas por argumentos lógicos e dados.
+- **Indicadores confiáveis:** SIM - O texto apresenta dados quantitativos que sustentam a análise.
+
+## 3. Coerência com a Matriz
+**Status: COERENTE**
+- O texto está alinhado com os insights e dados da Matriz Estratégica do projeto.
+
+## Conclusão
+O tópico está bem estruturado e validado. Nenhuma correção crítica é necessária.
+        `;
+    }
+
+    // Validation Failed, build detailed report
+    let howToFix = corrections.map((c, i) => `${i + 1}. ${c}`).join('\n');
+    if (matrixDivergences.length > 0) {
+        howToFix += `\n${corrections.length + 1}. **Revisar Coerência:** ${matrixDivergences[0]}`;
+    }
 
     return `
 # VALIDAÇÃO DO TÓPICO: ${topicTitle}
 
 ## 1. Metodologia SEBRAE
 **Correções necessárias:**
-- ${hasIssues ? "O conteúdo está muito superficial e não aborda todos os pontos solicitados na descrição do tópico. É preciso detalhar mais a análise." : "O tópico segue a estrutura geral, mas pode ser enriquecido com mais dados quantitativos."}
-- Adicionar uma tabela comparativa para maior clareza.
+${corrections.length > 0 ? corrections.map(c => `- ${c.replace(/\*\*/g, '')}`).join('\n') : "- Nenhuma correção crítica de metodologia."}
 
 ## 2. Requisitos BRDE
 **Análise:**
-- **Clareza de escopo:** ${hasIssues ? "NÃO - O escopo não está claro." : "SIM - O escopo do tópico está bem definido."}
-- **Justificativa consistente:** ${hasIssues ? "NÃO - Faltam argumentos para justificar as afirmações." : "SIM - As justificativas são coerentes com o restante do projeto."}
-- **Inovação:** SIM - O aspecto de inovação está presente.
-- **Acessibilidade:** PARCIAL - Acessibilidade é mencionada, mas não detalhada.
+${brdeAnalysis.map(b => `- **${b.name}:** ${b.status} - ${b.reason}`).join('\n')}
 
 ## 3. Coerência com a Matriz
 **Divergências encontradas:**
-- Não foram encontradas divergências diretas, mas o texto poderia refletir melhor os insights sobre as fraquezas identificadas na Matriz SWOT.
+${matrixDivergences.length > 0 ? matrixDivergences.map(d => `- ${d}`).join('\n') : "- Nenhuma divergência crítica encontrada."}
 
 ## 4. Problemas de lógica e inverdades
-- Nenhum problema de lógica grave foi encontrado. Apenas uma falta de profundidade na análise de causa e consequência.
+- Nenhum problema de lógica grave foi encontrado, mas a falta de dados e estrutura enfraquece a argumentação.
 
 ## 5. Como corrigir
-1. **Aprofundar:** Expanda cada ponto da descrição do tópico em pelo menos dois parágrafos.
-2. **Quantificar:** Substitua termos vagos como "muitos clientes" por números estimados, mesmo que baseados em premissas (ex: "estimamos atingir 5.000 assinantes no primeiro ano...").
-3. **Estruturar:** Use uma tabela Markdown para comparar concorrentes ou apresentar dados financeiros.
-4. **Conectar:** Adicione um parágrafo final que conecte as conclusões do tópico com os objetivos gerais do negócio.
+${howToFix}
     `;
 };
+
 
 export const implementCorrections = async (
     currentContent: string,
@@ -185,19 +256,15 @@ export const implementCorrections = async (
     sectionDescription: string,
     ...args: any[]
 ): Promise<string> => {
-    await wait(1200 + Math.random() * 800);
-    
-    const addedContent = `
----
-### Aprimoramento Sugerido pela IA
+    await wait(1500 + Math.random() * 1000); // Simulate a more complex rewrite task
 
-Com base no relatório de validação, foram adicionadas as seguintes informações para fortalecer o tópico, conforme as diretrizes do SEBRAE e BRDE.
+    const rewrittenContent = `
+### ${sectionTitle.replace(/^\d+\.\d+\s/, '')}
 
-#### Análise Quantitativa Adicional
-A análise inicial foi aprofundada com dados quantitativos para maior robustez. O mercado de streaming em Santa Catarina, estimado em R$ 200 milhões (SAM), apresenta uma taxa de crescimento de 15% ao ano, segundo dados da Ancine. A SCine visa capturar 2.5% deste mercado (SOM) nos primeiros 36 meses, o que representa uma meta de faturamento de R$ 5 milhões.
+A análise detalhada para este tópico, considerando o posicionamento estratégico do projeto SCine, aponta para os seguintes fatores-chave, alinhados com a diretriz: *"${sectionDescription}"*.
 
-#### Tabela Comparativa de Posicionamento
-Para facilitar a visualização da estratégia de nicho, a seguinte tabela foi incluída:
+#### Análise de Mercado e Posicionamento
+O projeto SCine se posiciona de forma única no mercado audiovisual de Santa Catarina ao integrar três frentes de negócio: uma plataforma de streaming (OTT) focada em conteúdo regional, um hub de produção física para criadores locais e uma unidade móvel 4K para cobertura de eventos. Essa abordagem híbrida mitiga riscos financeiros ao diversificar as fontes de receita entre B2C (assinaturas) e B2B (serviços de produção). A viabilidade do modelo é sustentada por uma demanda crescente por conteúdo local autêntico e pela carência de infraestrutura profissional acessível para produtores independentes na região, conforme validado por pesquisas de mercado anexas.
 
 | Concorrente | Proposta de Valor | Preço Médio | Foco Regional |
 |-------------|-------------------|-------------|---------------|
@@ -205,11 +272,17 @@ Para facilitar a visualização da estratégia de nicho, a seguinte tabela foi i
 | **Globoplay** | Conteúdo Nacional | R$ 24,90    | Sim (limitado)|
 | **SCine**   | Conteúdo Local SC | R$ 19,90    | **Total**     |
 
-Essas adições visam enriquecer o conteúdo original, tornando o argumento mais forte e claro para avaliadores e investidores.
-    `;
-    
-    // Combina o conteúdo original com as novas seções de aprimoramento
-    return currentContent + "\n\n" + addedContent;
+#### Pontos de Destaque Estratégico
+- **Mercado Alvo:** O público-alvo é bem definido, composto por consumidores de cultura catarinense (idade 25-55, renda B/C) e empresas que necessitam de produção audiovisual. A estratégia de marketing será direcionada para maximizar o ROI, com um CAC estimado em R$ 12,50 no primeiro ano.
+- **Diferencial Competitivo:** A principal vantagem competitiva reside na curadoria de conteúdo hiper-regional e na criação de um ecossistema que fomenta a produção local. Isso cria uma barreira de entrada cultural e de relacionamento que grandes players não conseguem replicar, gerando um ciclo virtuoso de oferta e demanda.
+- **Projeção Financeira:** As projeções indicam um ponto de equilíbrio no 28º mês, com um DSCR (Índice de Cobertura do Serviço da Dívida) superior a 1.5 a partir do terceiro ano, demonstrando ampla capacidade de honrar o financiamento pleiteado junto ao BRDE. A análise de sensibilidade confirma a resiliência do modelo.
+
+#### Conclusão da Seção
+A estratégia delineada para este tópico é sólida e alinhada aos objetivos gerais do plano de negócios. As premissas adotadas são realistas e baseadas em uma análise multifatorial do ambiente de negócios, garantindo que o projeto atenda tanto às expectativas do mercado quanto aos rigorosos requisitos de instituições de fomento.
+`;
+
+    // Return the single, consolidated, rewritten text.
+    return rewrittenContent;
 };
 
 

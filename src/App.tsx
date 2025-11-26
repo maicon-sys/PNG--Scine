@@ -147,7 +147,7 @@ const App: React.FC = () => {
     // FIX: Remove os dados do usuário E os projetos do localStorage,
     // garantindo que o próximo usuário comece com um ambiente limpo.
     localStorage.removeItem(STORAGE_KEY_USER);
-    localStorage.removeItem(STORAGE_KEY_PROJECTS);
+    // Não remove todos os projetos para não apagar dados de outros usuários
   };
 
   const handleCreateProject = (name: string) => {
@@ -191,29 +191,42 @@ const App: React.FC = () => {
       setSelectedSectionId(proj.currentData.sections[0].id);
     }
   };
+  
+  const updateSection = (sectionId: string, updates: Partial<PlanSection>) => {
+    setProjects(prevProjects =>
+      prevProjects.map(p => {
+        if (p.id !== activeProjectId) return p;
 
-  const updateProject = (id: string, updates: Partial<Project>) => {
-    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates, updatedAt: Date.now() } : p));
+        const newSections = p.currentData.sections.map(s =>
+          s.id === sectionId ? { ...s, ...updates } : s
+        );
+
+        return {
+          ...p,
+          updatedAt: Date.now(),
+          currentData: { ...p.currentData, sections: newSections }
+        };
+      })
+    );
   };
 
   const handleUpdateContext = (updates: Partial<AppContextState>) => {
-    if (!activeProject) return;
-    updateProject(activeProject.id, {
-      currentData: {
-        ...activeProject.currentData,
-        contextState: { ...activeProject.currentData.contextState, ...updates }
-      }
-    });
-  };
+    setProjects(prevProjects =>
+      prevProjects.map(p => {
+        if (p.id !== activeProjectId) return p;
 
-  const updateSection = (sectionId: string, updates: Partial<PlanSection>) => {
-    if (!activeProject) return;
-    const newSections = activeProject.currentData.sections.map(s => 
-      s.id === sectionId ? { ...s, ...updates } : s
+        const newContextState = { ...p.currentData.contextState, ...updates };
+
+        return {
+          ...p,
+          updatedAt: Date.now(),
+          currentData: {
+            ...p.currentData,
+            contextState: newContextState
+          }
+        };
+      })
     );
-    updateProject(activeProject.id, {
-      currentData: { ...activeProject.currentData, sections: newSections }
-    });
   };
 
   const getFullContext = ({ maxLength = 50000 }: { maxLength?: number } = {}) => {
@@ -313,12 +326,14 @@ const App: React.FC = () => {
                      suggestedSections: []
                  };
                  
-                 updateProject(activeProject.id, {
+                 setProjects(prev => prev.map(p => p.id === activeProjectId ? {
+                     ...p,
                      currentData: {
-                         ...activeProject.currentData,
-                         diagnosisHistory: [...activeProject.currentData.diagnosisHistory, diagnosisResult]
+                         ...p.currentData,
+                         diagnosisHistory: [...p.currentData.diagnosisHistory, diagnosisResult]
                      }
-                 });
+                 } : p));
+
                  setDiagnosisLogs(prev => [...prev, `Diagnóstico concluído! Nível de Prontidão: ${result.finalDiagnosis?.overallReadiness}%`]);
             }
         }
@@ -536,52 +551,70 @@ const App: React.FC = () => {
         
         setIsUpdatingMatrix(true);
         
-        updateSection(section.id, { status: SectionStatus.APPROVED });
-
         try {
             const matrixUpdate = await updateMatrixFromApprovedContent(
                 section.content,
                 section.title,
                 activeProject.currentData.contextState.strategicMatrix || DEFAULT_STRATEGIC_MATRIX
             );
-
-            if (Object.keys(matrixUpdate).length === 0) {
-                console.log("Nenhum dado novo encontrado para atualizar a matriz.");
-                setIsUpdatingMatrix(false);
-                return;
-            }
-
-            const currentMatrix = activeProject.currentData.contextState.strategicMatrix || DEFAULT_STRATEGIC_MATRIX;
-            const newMatrix = JSON.parse(JSON.stringify(currentMatrix));
-
-            const mergeBlock = (targetBlock: any, sourceBlock: any) => {
-                if (!sourceBlock || !targetBlock) return;
-                if (sourceBlock?.items) {
-                    targetBlock.items.push(...sourceBlock.items);
-                }
-                if (sourceBlock?.description) {
-                    targetBlock.description = sourceBlock.description;
-                }
-            };
-
-            Object.keys(matrixUpdate).forEach(key => {
-                if (key === 'swot' && matrixUpdate.swot) {
-                    Object.keys(matrixUpdate.swot).forEach(swotKey => {
-                        const target = newMatrix.swot[swotKey as keyof typeof newMatrix.swot];
-                        const source = matrixUpdate.swot![swotKey as keyof typeof matrixUpdate.swot];
-                        if(target && source) mergeBlock(target, source);
-                    });
-                } else if (newMatrix[key as keyof StrategicMatrix]) {
-                     const target = newMatrix[key as keyof StrategicMatrix];
-                     const source = matrixUpdate[key as keyof StrategicMatrix];
-                     if(target && source) mergeBlock(target, source);
-                }
-            });
             
-            handleUpdateContext({ strategicMatrix: newMatrix });
+            setProjects(prevProjects => 
+                prevProjects.map(p => {
+                    if (p.id !== activeProjectId) return p;
+
+                    // 1. Calculate new matrix based on the latest project state
+                    const currentMatrix = p.currentData.contextState.strategicMatrix || DEFAULT_STRATEGIC_MATRIX;
+                    let newMatrix = currentMatrix;
+
+                    if (Object.keys(matrixUpdate).length > 0) {
+                        newMatrix = JSON.parse(JSON.stringify(currentMatrix));
+                        
+                        const mergeBlock = (targetBlock: any, sourceBlock: any) => {
+                            if (!sourceBlock || !targetBlock) return;
+                            if (sourceBlock?.items) targetBlock.items.push(...sourceBlock.items);
+                            if (sourceBlock?.description) targetBlock.description = sourceBlock.description;
+                        };
+
+                        Object.keys(matrixUpdate).forEach(key => {
+                            if (key === 'swot' && matrixUpdate.swot) {
+                                Object.keys(matrixUpdate.swot).forEach(swotKey => {
+                                    const target = newMatrix.swot[swotKey as keyof typeof newMatrix.swot];
+                                    const source = matrixUpdate.swot![swotKey as keyof typeof matrixUpdate.swot];
+                                    if (target && source) mergeBlock(target, source);
+                                });
+                            } else if (newMatrix[key as keyof StrategicMatrix]) {
+                                const target = newMatrix[key as keyof StrategicMatrix];
+                                const source = matrixUpdate[key as keyof StrategicMatrix];
+                                if (target && source) mergeBlock(target, source);
+                            }
+                        });
+                    }
+
+                    // 2. Update section status
+                    const newSections = p.currentData.sections.map(s =>
+                      s.id === section.id ? { ...s, status: SectionStatus.APPROVED } : s
+                    );
+
+                    // 3. Return the fully updated project
+                    return {
+                        ...p,
+                        updatedAt: Date.now(),
+                        currentData: {
+                            ...p.currentData,
+                            sections: newSections,
+                            contextState: {
+                                ...p.currentData.contextState,
+                                strategicMatrix: newMatrix
+                            }
+                        }
+                    };
+                })
+            );
 
         } catch (e) {
             console.error("Erro ao retroalimentar a matriz:", e);
+            // Revert status on failure
+            updateSection(section.id, { status: SectionStatus.DRAFT });
         } finally {
             setIsUpdatingMatrix(false);
         }
