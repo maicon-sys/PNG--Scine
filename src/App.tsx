@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Project, User, PlanSection, SectionStatus, AppContextState, 
-  StrategicMatrix, BusinessGoal, SectionType, AnalysisGap, DiagnosisResponse 
+  StrategicMatrix, BusinessGoal, SectionType, AnalysisGap, DiagnosisResponse, UploadedFile 
 } from '../types';
 import { 
   INITIAL_SECTIONS, DEFAULT_STRATEGIC_MATRIX, DEFAULT_METHODOLOGY, 
   DIAGNOSIS_STEPS, SCINE_CONTEXT 
 } from '../constants';
 import { 
-  runDiagnosisStep, generateSectionContent, validateCompletedSections, updateMatrixFromApprovedContent, runTopicValidation, implementCorrections 
+  runDiagnosisStep, generateSectionContent, validateCompletedSections, updateMatrixFromApprovedContent, runTopicValidation, implementCorrections, reevaluateGap 
 } from '../services/gemini';
 import { Dashboard } from '../components/Dashboard';
 import { AuthScreen } from '../components/AuthScreen';
@@ -19,9 +19,10 @@ import { FinancialChart } from '../components/FinancialChart';
 import { SelectApiKeyModal } from '../components/SelectApiKeyModal';
 import { ValidationModal } from '../components/ValidationModal';
 import { DiagnosisDetailModal } from '../components/DiagnosisDetailModal';
+import { DocumentationModal } from '../components/DocumentationModal';
 import { 
   LayoutDashboard, FileText, Settings, PlayCircle, 
-  CheckCircle, AlertCircle, ChevronRight, Save, ArrowLeft, Loader2, Sparkles, BookOpen, X, Edit, XCircle
+  CheckCircle, AlertCircle, ChevronRight, Save, ArrowLeft, Loader2, Sparkles, BookOpen, X, Edit, XCircle, HelpCircle
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -66,6 +67,9 @@ const App: React.FC = () => {
   const [validationModalOpen, setValidationModalOpen] = useState(false);
   const [validationReport, setValidationReport] = useState<string | null>(null);
   const [isCorrecting, setIsCorrecting] = useState(false);
+
+  // FEATURE: Novo estado para o modal de documentação.
+  const [isDocumentationModalOpen, setIsDocumentationModalOpen] = useState(false);
 
   // Computed Active Project
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
@@ -231,6 +235,74 @@ const App: React.FC = () => {
         };
       })
     );
+  };
+
+  const handleExportProject = (projectId: string) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) {
+      alert("Projeto não encontrado!");
+      return;
+    }
+
+    try {
+      const jsonString = JSON.stringify(project, null, 2);
+      const blob = new Blob([jsonString], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${project.name.replace(/[\s/]/g, '_')}_backup.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Erro ao exportar projeto:", error);
+      alert("Ocorreu um erro ao exportar o projeto.");
+    }
+  };
+
+  const handleImportProject = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!user) {
+        alert("Você precisa estar logado para importar um projeto.");
+        return;
+    }
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const importedProject = JSON.parse(text) as Project;
+
+        // Validação básica
+        if (!importedProject.id || !importedProject.name || !importedProject.currentData?.sections) {
+          throw new Error("Formato de arquivo inválido.");
+        }
+
+        const projectExists = projects.some(p => p.id === importedProject.id);
+
+        if (projectExists) {
+            if (!window.confirm("Um projeto com o mesmo ID já existe. Deseja sobrescrevê-lo?")) {
+                 if (event.target) event.target.value = ''; // Reseta o input de arquivo
+                 return;
+            }
+            // Lógica para sobrescrever
+            setProjects(prev => prev.map(p => p.id === importedProject.id ? { ...importedProject, userId: user.id } : p));
+        } else {
+            // Adiciona como novo projeto
+            setProjects(prev => [...prev, { ...importedProject, userId: user.id }]);
+        }
+
+        alert(`Projeto "${importedProject.name}" importado com sucesso!`);
+      } catch (error) {
+        console.error("Erro ao importar projeto:", error);
+        alert(`Falha ao importar o projeto. Verifique se o arquivo .json é válido. Erro: ${error instanceof Error ? error.message : 'Desconhecido'}`);
+      } finally {
+        if (event.target) event.target.value = ''; // Reseta o input de arquivo
+      }
+    };
+    reader.readAsText(file);
   };
 
   const getFullContext = ({ maxLength = 50000 }: { maxLength?: number } = {}) => {
@@ -632,10 +704,122 @@ const App: React.FC = () => {
 
   const handleOpenDiagnosisDetails = () => {
     if (activeProject && activeProject.currentData.diagnosisHistory.length > 0) {
-        setSelectedDiagnosis(activeProject.currentData.diagnosisHistory[activeProject.currentData.diagnosisHistory.length - 1]);
+        const latestDiagnosis = activeProject.currentData.diagnosisHistory[activeProject.currentData.diagnosisHistory.length - 1];
+        setSelectedDiagnosis(latestDiagnosis);
         setIsDiagnosisDetailModalOpen(true);
     }
   };
+
+  // FEATURE: Função para reavaliar uma pendência do diagnóstico.
+  const handleReevaluateGap = async (gapId: string, userText: string, files: File[]) => {
+      if (!activeProject) return;
+
+      const latestDiagnosis = activeProject.currentData.diagnosisHistory[activeProject.currentData.diagnosisHistory.length - 1];
+      const originalGap = latestDiagnosis?.gaps.find(g => g.id === gapId);
+
+      if (!originalGap) {
+          alert("Erro: Pendência original não encontrada.");
+          return;
+      }
+      
+      // 1. Processar arquivos para texto (simples, sem imagens por enquanto)
+      const newFilesContent: string[] = [];
+      for (const file of files) {
+          try {
+              const content = await file.text();
+              newFilesContent.push(`--- ARQUIVO ANEXADO: ${file.name} ---\n${content}`);
+          } catch(e) {
+              console.error(`Não foi possível ler o arquivo ${file.name}`, e);
+          }
+      }
+      
+      // 2. Chamar o serviço de IA
+      try {
+          const result = await reevaluateGap(
+              originalGap,
+              userText,
+              newFilesContent,
+              getFullContext()
+          );
+
+          // 3. Atualizar o estado do projeto
+          setProjects(prevProjects => prevProjects.map(p => {
+              if (p.id !== activeProjectId) return p;
+
+              const updatedHistory = [...p.currentData.diagnosisHistory];
+              const currentDiag = updatedHistory[updatedHistory.length - 1];
+              
+              // Atualiza a pendência específica
+              const updatedGaps = currentDiag.gaps.map(g => 
+                  g.id === gapId 
+                  ? { 
+                      ...g, 
+                      aiFeedback: result.updatedFeedback, 
+                      resolutionScore: result.newResolutionScore,
+                      status: result.newStatus,
+                      updatedAt: Date.now()
+                    } 
+                  : g
+              );
+
+              // Recalcula a pontuação geral
+              const newReadiness = Math.min(100, currentDiag.overallReadiness + result.readinessAdjustment);
+              
+              // Atualiza o último diagnóstico no histórico
+              updatedHistory[updatedHistory.length - 1] = {
+                  ...currentDiag,
+                  gaps: updatedGaps,
+                  overallReadiness: newReadiness,
+              };
+
+              // Adiciona os novos arquivos ao contexto geral do projeto
+              const newUploadedFiles: UploadedFile[] = files.map((file, index) => ({
+                name: file.name,
+                content: newFilesContent[index],
+                type: 'text' 
+              }));
+
+              return {
+                  ...p,
+                  updatedAt: Date.now(),
+                  currentData: {
+                      ...p.currentData,
+                      diagnosisHistory: updatedHistory,
+                      contextState: {
+                        ...p.currentData.contextState,
+                        uploadedFiles: [...p.currentData.contextState.uploadedFiles, ...newUploadedFiles]
+                      }
+                  }
+              };
+          }));
+
+          // Atualiza a visualização do modal se ele estiver aberto
+          setSelectedDiagnosis(prev => {
+              if (!prev) return null;
+              const updatedGaps = prev.gaps.map(g => 
+                  g.id === gapId 
+                  ? { 
+                      ...g, 
+                      aiFeedback: result.updatedFeedback, 
+                      resolutionScore: result.newResolutionScore,
+                      status: result.newStatus,
+                      updatedAt: Date.now()
+                    } 
+                  : g
+              );
+              return {
+                ...prev,
+                gaps: updatedGaps,
+                overallReadiness: Math.min(100, prev.overallReadiness + result.readinessAdjustment)
+              };
+          });
+
+      } catch (e) {
+          console.error("Erro ao reavaliar pendência:", e);
+          alert("Ocorreu um erro ao tentar reavaliar a pendência.");
+      }
+  };
+
 
   // --- RENDERING ---
 
@@ -652,6 +836,8 @@ const App: React.FC = () => {
         onOpenProject={handleOpenProject}
         onDeleteProject={handleDeleteProject}
         onLogout={handleLogout}
+        onExportProject={handleExportProject}
+        onImportProject={handleImportProject}
       />
     );
   }
@@ -890,10 +1076,18 @@ const App: React.FC = () => {
 
       {/* Right Sidebar: Context & AI Tools */}
       <div className="w-96 bg-white border-l border-gray-200 flex flex-col flex-shrink-0 overflow-hidden shadow-xl z-20">
-        <div className="p-4 bg-gray-50 border-b border-gray-200">
+        <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
           <h3 className="font-bold text-gray-700 flex items-center gap-2">
             <Settings className="w-4 h-4" /> Ferramentas do Projeto
           </h3>
+          <button
+            onClick={() => setIsDocumentationModalOpen(true)}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 font-medium transition-colors"
+            title="Entenda como a IA analisa seu projeto"
+          >
+            <HelpCircle className="w-4 h-4" />
+            Documentação
+          </button>
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -969,6 +1163,7 @@ const App: React.FC = () => {
             isOpen={isDiagnosisDetailModalOpen}
             onClose={() => setIsDiagnosisDetailModalOpen(false)}
             diagnosis={selectedDiagnosis}
+            onReevaluateGap={handleReevaluateGap}
         />
       )}
 
@@ -1025,6 +1220,14 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* FEATURE: Renderiza o novo modal de documentação. */}
+      {isDocumentationModalOpen && (
+        <DocumentationModal
+          isOpen={isDocumentationModalOpen}
+          onClose={() => setIsDocumentationModalOpen(false)}
+        />
       )}
     </div>
   );

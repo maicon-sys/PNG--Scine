@@ -1,6 +1,5 @@
-
-import React, { useState } from 'react';
-import { Plus, Folder, Trash2, Clock, ExternalLink, LogOut, AlertTriangle } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Folder, Trash2, Clock, ExternalLink, LogOut, AlertTriangle, Download, Upload } from 'lucide-react';
 import { Project, User } from '../types';
 
 interface DashboardProps {
@@ -10,6 +9,8 @@ interface DashboardProps {
   onOpenProject: (id: string) => void;
   onDeleteProject: (id: string) => void;
   onLogout: () => void;
+  onExportProject: (id: string) => void;
+  onImportProject: (event: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ 
@@ -18,11 +19,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onCreateProject, 
   onOpenProject, 
   onDeleteProject,
-  onLogout 
+  onLogout,
+  onExportProject,
+  onImportProject
 }) => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,12 +75,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <h1 className="text-2xl font-bold text-gray-900">Seus Projetos</h1>
             <p className="text-gray-500 mt-1">Gerencie seus planos de negócio e versões.</p>
           </div>
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="inline-flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-lg font-medium shadow-sm transition-all hover:shadow-md"
-          >
-            <Plus className="w-5 h-5" /> Novo Projeto
-          </button>
+          <div className="flex items-center gap-3">
+              <input
+                type="file"
+                ref={importInputRef}
+                className="hidden"
+                onChange={onImportProject}
+                accept=".json"
+              />
+              <button
+                onClick={() => importInputRef.current?.click()}
+                className="inline-flex items-center justify-center gap-2 bg-white hover:bg-gray-100 border border-gray-300 text-gray-700 px-4 py-3 rounded-lg font-medium shadow-sm transition-all"
+              >
+                  <Upload className="w-4 h-4" /> Importar Projeto
+              </button>
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="inline-flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-lg font-medium shadow-sm transition-all hover:shadow-md"
+              >
+                <Plus className="w-5 h-5" /> Novo Projeto
+              </button>
+          </div>
         </div>
 
         {/* Project Grid */}
@@ -103,12 +122,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <div className="p-3 bg-blue-50 rounded-lg">
                       <Folder className="w-6 h-6 text-blue-600" />
                     </div>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setProjectToDelete(project.id); }}
-                      className="text-gray-300 hover:text-red-500 transition-colors p-1"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                    <div className="flex items-center">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onExportProject(project.id); }}
+                        className="text-gray-300 hover:text-blue-500 transition-colors p-1"
+                        title="Exportar projeto para .json"
+                      >
+                        <Download className="w-5 h-5" />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setProjectToDelete(project.id); }}
+                        className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
                   
                   <h3 className="text-lg font-bold text-gray-900 mb-1 group-hover:text-orange-600 transition-colors">

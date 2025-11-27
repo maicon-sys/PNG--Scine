@@ -62,6 +62,53 @@
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
       ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+      /* FEATURE: Estilos de impressão para corrigir o botão 'Imprimir / PDF' */
+      @media print {
+        body, html {
+          background: white !important;
+        }
+
+        /* Esconde todos os elementos que não fazem parte da área de impressão */
+        body > #root > div > *:not(.printable-area) {
+            display: none !important;
+        }
+
+        /* Força a raiz da aplicação a se comportar como um bloco normal, não flex */
+        #root, #root > div {
+            display: block !important;
+        }
+
+        /* Prepara a área de impressão para ser o único conteúdo */
+        .printable-area {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+        }
+
+        /* Garante que o container das páginas não tenha margens indesejadas */
+        .printable-area > div {
+            margin: 0 !important;
+        }
+
+        .A4-page {
+            box-shadow: none !important;
+            border: none !important;
+            margin: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            page-break-after: always;
+            padding: 20mm !important; /* Adiciona as margens de impressão */
+        }
+        
+        .A4-page:last-child {
+          page-break-after: auto;
+        }
+      }
     </style>
 <script type="importmap">
 {

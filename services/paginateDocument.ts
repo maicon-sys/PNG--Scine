@@ -60,7 +60,7 @@ export const paginateContent = (
 
     // Registra no mapa do sumário (Página atual + Offset de capas/TOC + 1 base-1)
     if (id) {
-      tocMap[id] = pages.length + tocOffset + 1;
+      tocMap[id] = pages.length + tocOffset;
     }
 
     currentPageNodes.push(child);
@@ -73,6 +73,6 @@ export const paginateContent = (
   return {
     pages,
     tocMap,
-    totalPages: pages.length + tocOffset
+    totalPages: pages.length
   };
 };

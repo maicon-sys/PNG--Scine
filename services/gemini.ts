@@ -1,3 +1,5 @@
+
+
 import { 
     FinancialYear, 
     ProjectAsset, 
@@ -12,7 +14,7 @@ import {
     MatrixItem, 
     SectionStatus 
 } from "../types";
-import { DIAGNOSIS_STEPS, DEFAULT_STRATEGIC_MATRIX } from "../constants";
+import { DIAGNOSIS_STEPS, DEFAULT_STRATEGIC_MATRIX, VALIDATION_MATRIX } from "../constants";
 
 // --- HIGH-FIDELITY INTERNAL AI ENGINE ---
 // This module simulates the Gemini API's behavior with realistic, context-aware responses.
@@ -160,6 +162,76 @@ A estratégia aqui delineada é sólida e fundamentada. As premissas são realis
 
 // --- CORE FUNCTIONS IMPLEMENTATION ---
 
+// FEATURE: Nova função de auditoria que alimenta o diagnóstico final.
+const performAuditAndGenerateGaps = (fullContext: string): { gaps: Omit<AnalysisGap, 'createdAt' | 'updatedAt' | 'resolvedAt' | 'status' | 'resolutionScore'>[], overallReadiness: number } => {
+    const gaps: Omit<AnalysisGap, 'createdAt' | 'updatedAt' | 'resolvedAt' | 'status' | 'resolutionScore'>[] = [];
+    let totalCriteria = 0;
+    
+    if (!hasContent(fullContext)) {
+         VALIDATION_MATRIX.forEach(chapter => {
+            chapter.criteria.forEach(criterion => {
+                totalCriteria++;
+                gaps.push({
+                    id: `GAP-${criterion.id}`,
+                    description: `[Nível 0] Informação ausente: ${criterion.label}`,
+                    aiFeedback: `Nenhuma informação encontrada nos documentos sobre "${criterion.description}". É necessário criar este conteúdo do zero.`,
+                    severityLevel: criterion.level >= 2 ? 'A' : 'B',
+                });
+            });
+         });
+         return { gaps, overallReadiness: 5 };
+    }
+
+    VALIDATION_MATRIX.forEach(chapter => {
+        chapter.criteria.forEach(criterion => {
+            totalCriteria++;
+            const mainKeywordsFound = criterion.keywords.some(kw => new RegExp(`\\b${kw.replace(/ /g, '\\s*')}\\b`, 'i').test(fullContext));
+
+            if (!mainKeywordsFound) {
+                // Nível 0/2 Falha: Existência
+                gaps.push({
+                    id: `GAP-${criterion.id}`,
+                    description: `[Nível 0/2] Informação ausente: ${criterion.label}`,
+                    aiFeedback: `A IA não encontrou menções a "${criterion.keywords.join(', ')}" no contexto. Este é um ponto ${criterion.level >= 2 ? 'crítico (exigência bancária)' : 'básico'} que precisa ser abordado.`,
+                    severityLevel: criterion.level >= 2 ? 'A' : 'B',
+                });
+                return; // Próximo critério
+            }
+
+            // Nível 1 Checagem: Profundidade
+            if (criterion.level === 1 && criterion.subCriteria && criterion.subCriteria.length > 0) {
+                const missingSubCriteria = criterion.subCriteria.filter(sc => 
+                    !sc.keywords.some(kw => new RegExp(`\\b${kw.replace(/ /g, '\\s*')}\\b`, 'i').test(fullContext))
+                );
+                if (missingSubCriteria.length > 0) {
+                    gaps.push({
+                        id: `GAP-${criterion.id}`,
+                        description: `[Nível 1] Falta profundidade em: ${criterion.label}`,
+                        aiFeedback: `O tópico foi mencionado, mas faltam detalhes específicos sobre: ${missingSubCriteria.map(m => m.label).join(', ')}.`,
+                        severityLevel: 'B',
+                    });
+                    return;
+                }
+            }
+            
+            // Nível 3 Checagem: Coerência (Simulação)
+            // A simulação de coerência aqui é simplificada. Apenas verificamos se os conceitos principais estão presentes.
+            // A validação de coerência real aconteceria em uma auditoria manual ou uma IA mais avançada.
+            // O fato de não ter gerado um gap nos níveis anteriores já é um bom sinal de coerência básica.
+            if (criterion.level === 3) {
+                 // Para a simulação, consideramos que se os keywords principais foram encontrados, a coerência é parcial.
+                 // Gaps de coerência são complexos e geralmente apontados manualmente.
+            }
+
+        });
+    });
+
+    const readiness = Math.max(10, Math.floor(((totalCriteria - gaps.length) / totalCriteria) * 100));
+    
+    return { gaps, overallReadiness: readiness };
+};
+
+
 export const runDiagnosisStep = async (
     stepIndex: number,
     fullContext: string,
@@ -200,14 +272,21 @@ export const runDiagnosisStep = async (
 
     // Final step logic
     if (stepIndex === 9) {
-        logs.push("Consolidando diagnóstico final...");
+        logs.push("Consolidando diagnóstico...");
+        logs.push("Executando auditoria completa com base na Matriz de Exigências SEBRAE/BRDE...");
+        
+        const { gaps, overallReadiness } = performAuditAndGenerateGaps(fullContext);
+        
         result.finalDiagnosis = {
-            overallReadiness: hasContent(fullContext) ? 65 + Math.floor(Math.random() * 15) : 15,
-            gaps: [
-                { id: 'GAP01', description: 'Dados financeiros precisam ser detalhados em planilhas.', aiFeedback: 'As projeções são conceituais. É necessário apresentar um DRE, Fluxo de Caixa e Balanço projetado para 5 anos.', severityLevel: 'A' },
-                { id: 'GAP02', description: 'Pesquisa de mercado quantitativa ausente.', aiFeedback: 'Faltam dados primários sobre a disposição a pagar do público-alvo em Santa Catarina.', severityLevel: 'B' },
-            ]
+            overallReadiness,
+            gaps,
         };
+
+        if (gaps.length > 0) {
+            logs.push(`Auditoria finalizada. Nível de Prontidão: ${overallReadiness}%. Foram identificadas ${gaps.length} pendências.`);
+        } else {
+            logs.push(`Auditoria finalizada. Nível de Prontidão: ${overallReadiness}%. Nenhuma pendência crítica encontrada!`);
+        }
         logs.push("Diagnóstico finalizado.");
     }
 
@@ -484,4 +563,46 @@ export const validateCompletedSections = async (
             feedback: 'Conteúdo validado. Coerente com a Matriz Estratégica e os objetivos do projeto.'
         };
     });
+};
+
+// FEATURE: Nova função para reavaliar uma pendência específica do diagnóstico.
+export const reevaluateGap = async (
+  originalGap: AnalysisGap,
+  userText: string,
+  newFilesContent: string[],
+  fullContext: string
+): Promise<{ updatedFeedback: string; newResolutionScore: number; newStatus: 'OPEN' | 'RESOLVED' | 'PARTIAL'; readinessAdjustment: number }> => {
+    await wait(1500 + Math.random() * 500);
+
+    const hasNewInfo = (userText && userText.trim().length > 10) || newFilesContent.length > 0;
+
+    if (!hasNewInfo) {
+        return {
+            updatedFeedback: "Nenhuma informação nova foi fornecida. A pendência permanece a mesma.",
+            newResolutionScore: originalGap.resolutionScore,
+            newStatus: originalGap.status,
+            readinessAdjustment: 0
+        };
+    }
+    
+    // Simulação de IA: Se o usuário forneceu qualquer coisa, consideramos resolvido.
+    // Numa implementação real, a IA analisaria o conteúdo.
+    const lowerDesc = originalGap.description.toLowerCase();
+    let feedback = "";
+    if (lowerDesc.includes('financeiro')) {
+        feedback = "Excelente! As planilhas financeiras foram anexadas e os dados detalhados. A projeção agora está clara.";
+    } else if (lowerDesc.includes('mercado')) {
+        feedback = "Ótimo! A pesquisa de mercado foi adicionada, fornecendo os dados quantitativos necessários para validar a demanda.";
+    } else {
+        feedback = "Informação recebida. A IA processou os novos dados e considerou esta pendência como resolvida.";
+    }
+    
+    const readinessAdjustment = originalGap.severityLevel === 'A' ? 15 : 10;
+
+    return {
+        updatedFeedback: feedback,
+        newResolutionScore: 100,
+        newStatus: 'RESOLVED',
+        readinessAdjustment: readinessAdjustment,
+    };
 };

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FileText, ArrowLeft, Loader2, BookOpen, Download } from 'lucide-react';
+import { FileText, ArrowLeft, Loader2, BookOpen, Download, File } from 'lucide-react';
 import { PlanSection, ProjectAsset } from '../types';
 import { GLOSSARY_TERMS } from '../constants';
 import { generateDocx } from '../services/generateDocx';
@@ -45,9 +45,11 @@ const PAGE_FOOTER_STYLE: React.CSSProperties = {
 
 
 export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projectName, sections, assets, onClose }) => {
-  const [isExporting, setIsExporting] = useState(false);
+  const [isExportingDocx, setIsExportingDocx] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   
   const measureRef = useRef<HTMLDivElement>(null);
+  const pagesContainerRef = useRef<HTMLDivElement>(null);
   const [paginatedData, setPaginatedData] = useState<PaginatedResult | null>(null);
   const [isCalculating, setIsCalculating] = useState(true);
 
@@ -55,6 +57,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
     .filter(s => s.content && s.content.trim() !== '');
 
   useEffect(() => {
+    setIsCalculating(true);
     const timer = setTimeout(() => {
       if (measureRef.current) {
         const result = paginateContent(measureRef.current, 2);
@@ -68,7 +71,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
 
   const handleExportDocx = async () => {
     try {
-      setIsExporting(true);
+      setIsExportingDocx(true);
       const blob = await generateDocx(projectName, sortedSections, assets);
       
       const url = URL.createObjectURL(blob);
@@ -83,7 +86,46 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
       console.error("Erro ao gerar DOCX:", error);
       alert("Houve um erro ao gerar o arquivo Word. Tente novamente.");
     } finally {
-      setIsExporting(false);
+      setIsExportingDocx(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    if (!pagesContainerRef.current || !window.jspdf || !window.html2canvas) {
+      alert("Erro: Biblioteca de geração de PDF não está pronta.");
+      return;
+    }
+    setIsExportingPdf(true);
+    
+    try {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageElements = pagesContainerRef.current.querySelectorAll('.A4-page');
+
+      for (let i = 0; i < pageElements.length; i++) {
+        const page = pageElements[i] as HTMLElement;
+        const canvas = await window.html2canvas(page, {
+          scale: 2, // Aumenta a resolução para melhor qualidade
+          useCORS: true,
+          logging: false,
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const pdfWidth = 210;
+        const pdfHeight = 297;
+
+        if (i > 0) {
+          pdf.addPage();
+        }
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      }
+
+      pdf.save(`${projectName.replace(/[\s/]/g, '_')}_Plano_de_Negocios.pdf`);
+    } catch (error) {
+      console.error("Erro ao gerar PDF:", error);
+      alert("Houve um erro ao gerar o arquivo PDF. Tente novamente.");
+    } finally {
+      setIsExportingPdf(false);
     }
   };
 
@@ -163,31 +205,32 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
         </div>
         <div className="flex items-center gap-4">
           <button 
-            onClick={() => window.print()}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            onClick={handleExportPdf}
+            disabled={isExportingPdf || isCalculating}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors w-32"
           >
-            <FileText className="w-4 h-4" /> Imprimir / PDF
+             {isExportingPdf ? <Loader2 className="w-4 h-4 animate-spin"/> : <><File className="w-4 h-4" /> Baixar .pdf</>}
           </button>
           <button 
             onClick={handleExportDocx}
-            disabled={isExporting}
+            disabled={isExportingDocx || isCalculating}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium shadow-sm transition-all w-32"
           >
-            {isExporting ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Download className="w-4 h-4" /> Baixar .docx</>}
+            {isExportingDocx ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Download className="w-4 h-4" /> Baixar .docx</>}
           </button>
         </div>
       </header>
 
-      <main className="flex-1 overflow-auto p-8 bg-gray-500 print:bg-white">
+      <main className="printable-area flex-1 overflow-auto p-8 bg-gray-500 print:bg-white print:p-0">
         {isCalculating ? (
           <div className="flex flex-col items-center justify-center text-white h-full">
             <Loader2 className="w-12 h-12 animate-spin mb-4" />
             <p className="text-lg font-semibold">Calculando paginação do documento...</p>
           </div>
         ) : (
-          <div className="document-preview-container space-y-8 mx-auto">
+          <div ref={pagesContainerRef} className="space-y-8 mx-auto">
             {/* --- Cover Page --- */}
-            <div style={A4_PAGE_STYLE}>
+            <div className="A4-page" style={A4_PAGE_STYLE}>
               <div style={PAGE_CONTENT_STYLE} className="flex flex-col justify-center items-center text-center">
                 <div className="w-full">
                   <h1 className="text-5xl font-bold text-gray-800">{projectName}</h1>
@@ -204,7 +247,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
             </div>
 
             {/* --- Table of Contents --- */}
-            <div style={A4_PAGE_STYLE}>
+            <div className="A4-page" style={A4_PAGE_STYLE}>
               <div style={PAGE_CONTENT_STYLE}>
                 <h1 className="text-2xl font-bold mb-8 uppercase border-b-2 border-gray-800 pb-2">Sumário</h1>
                 <ul className="space-y-3 text-sm">
@@ -222,7 +265,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
               </div>
               <div style={PAGE_FOOTER_STYLE}>
                 <span></span>
-                <span>Página 2 de {paginatedData?.totalPages || '...'}</span>
+                <span>Página 2 de {paginatedData?.totalPages ? (paginatedData.totalPages + 2) : '...'}</span>
               </div>
             </div>
             
@@ -231,7 +274,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
               const terms = getTermsOnPage(pageHtml);
               const pageNumber = index + 1 + 2;
               return (
-                <div key={`page-${index}`} style={A4_PAGE_STYLE}>
+                <div key={`page-${index}`} className="A4-page" style={A4_PAGE_STYLE}>
                   <div style={PAGE_CONTENT_STYLE} dangerouslySetInnerHTML={{ __html: pageHtml }} />
                   <div style={PAGE_FOOTER_STYLE}>
                     <span className="text-xs text-gray-500">Confidencial</span>
@@ -239,7 +282,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
                     <div className="text-[9px] text-gray-500 flex-1 text-center px-4">
                         {terms.length > 0 && <span>{terms.join(' | ')}</span>}
                     </div>
-                    <span className="text-xs text-gray-500">Página {pageNumber} de {paginatedData?.totalPages || '...'}</span>
+                    <span className="text-xs text-gray-500">Página {pageNumber} de {paginatedData?.totalPages ? (paginatedData.totalPages + 2) : '...'}</span>
                   </div>
                 </div>
               );

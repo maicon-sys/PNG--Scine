@@ -1,56 +1,162 @@
 import { PlanSection, SectionStatus, SectionType, StrategicMatrix } from './types';
 
-export const DIAGNOSIS_STEPS = [
-  { 
-    name: 'Análise de Mercado', 
-    description: 'Avaliar o público-alvo, segmentos de clientes e tamanho de mercado (TAM/SAM/SOM).',
-    matrixTargets: ['customerSegments', 'swot.opportunities']
+// FEATURE: Nova matriz de validação detalhada que guia o diagnóstico.
+// Esta estrutura substitui a antiga lista de passos genérica.
+export interface Criterion {
+  id: string; // Ex: '2.1.1'
+  level: 0 | 1 | 2 | 3; // 0: Existência, 1: Profundidade (Sebrae), 2: Bancário (BRDE), 3: Coerência
+  label: string;
+  description: string;
+  keywords: string[]; // Palavras-chave para a IA procurar no contexto
+  // Subcritérios para avaliações de profundidade (Nível 1 e 2)
+  subCriteria?: { id: string; label: string; keywords: string[] }[]; 
+}
+
+export interface ChapterValidation {
+  chapterId: string; // '1', '2', etc.
+  chapterName: string;
+  criteria: Criterion[];
+}
+
+// ✅ MATRIZ DE EXIGÊNCIAS PARA CONSTRUIR O PLANO DE NEGÓCIO (SEBRAE + BRDE)
+export const VALIDATION_MATRIX: ChapterValidation[] = [
+  {
+    chapterId: '1',
+    chapterName: 'SUMÁRIO EXECUTIVO',
+    criteria: [
+      { id: '1.0.1', level: 0, label: 'Descrição do negócio', description: 'O que é o negócio', keywords: ['negócio', 'empresa', 'scine', 'plataforma', 'hub', 'ecossistema'] },
+      { id: '1.0.2', level: 0, label: 'Problema/Solução', description: 'O que ele resolve', keywords: ['problema', 'solução', 'oportunidade', 'resolve', 'necessidade'] },
+      { id: '1.0.3', level: 0, label: 'Público-alvo', description: 'Para quem', keywords: ['público', 'cliente', 'segmento', 'b2c', 'b2b'] },
+      { id: '1.0.4', level: 0, label: 'Modelo de receita', description: 'Como ganha dinheiro', keywords: ['receita', 'monetização', 'assinatura', 'venda', 'preço'] },
+      { id: '1.0.5', level: 0, label: 'Investimento necessário', description: 'Investimento necessário', keywords: ['investimento', 'valor', 'recursos', 'financiamento', 'crédito'] },
+      { id: '1.0.6', level: 0, label: 'Resultado esperado', description: 'Resultado esperado', keywords: ['resultado', 'meta', 'objetivo', 'retorno', 'impacto'] },
+      { id: '1.2.1', level: 2, label: 'Indicadores financeiros (payback, margem, ponto de equilíbrio, EBITDA)', description: 'Exigência de indicadores como payback, margem, ponto de equilíbrio, EBITDA.', keywords: ['indicadores', 'payback', 'margem', 'ponto de equilíbrio', 'ebitda'] },
+      { id: '1.2.2', level: 2, label: 'Garantias e contrapartida', description: 'Exigência de menção a garantias e contrapartida.', keywords: ['garantias', 'contrapartida', 'aporte'] },
+      { id: '1.2.3', level: 2, label: 'Origem dos recursos', description: 'Exigência de detalhamento da origem dos recursos (empréstimo + contrapartida).', keywords: ['origem dos recursos', 'fontes', 'empréstimo'] },
+      { id: '1.2.4', level: 2, label: 'Impacto social', description: 'Exigência de menção ao impacto social do projeto.', keywords: ['impacto social', 'cultural', 'regional', 'comunidade'] },
+      { id: '1.2.5', level: 2, label: 'Capacidade de pagamento', description: 'Exigência de demonstração da capacidade de pagamento.', keywords: ['capacidade de pagamento', 'dscr', 'serviço da dívida'] },
+    ]
   },
-  { 
-    name: 'Análise de Concorrência', 
-    description: 'Mapear concorrentes diretos e indiretos, analisando seus pontos fortes e fracos.',
-    matrixTargets: ['swot.threats', 'swot.weaknesses']
+  {
+    chapterId: '2',
+    chapterName: 'ANÁLISE DE MERCADO',
+    criteria: [
+      { id: '2.0.1', level: 0, label: 'Segmentação presente', description: 'Verifica a existência de análise de segmentação.', keywords: ['segmentação', 'público-alvo', 'persona'] },
+      { id: '2.0.2', level: 0, label: 'Pesquisa primária presente', description: 'Verifica menção a uma pesquisa de mercado primária.', keywords: ['pesquisa', 'questionário', 'entrevista', 'primária'] },
+      { id: '2.0.3', level: 0, label: 'Análise de concorrentes presente', description: 'Verifica a existência de análise de concorrência.', keywords: ['concorrente', 'concorrência', 'competidores'] },
+      { id: '2.0.4', level: 0, label: 'TAM/SAM/SOM presente', description: 'Verifica a existência do cálculo de tamanho de mercado.', keywords: ['tam', 'sam', 'som', 'tamanho de mercado'] },
+      { id: '2.0.5', level: 0, label: 'Tendências presentes', description: 'Verifica a análise de tendências de mercado.', keywords: ['tendências', 'cenário', 'crescimento'] },
+      { id: '2.0.6', level: 0, label: 'Riscos de mercado presentes', description: 'Verifica a identificação de riscos de mercado.', keywords: ['riscos de mercado', 'ameaças'] },
+      { id: '2.1.1', level: 1, label: 'Profundidade da Segmentação', description: 'A segmentação deve incluir características demográficas, comportamentos, hábitos de consumo e poder de compra.', keywords: ['segmentação'], subCriteria: [
+        { id: '2.1.1a', label: 'Demografia', keywords: ['demográfico', 'idade', 'gênero', 'renda'] },
+        { id: '2.1.1b', label: 'Comportamentos/Hábitos', keywords: ['comportamento', 'hábito', 'frequência', 'consumo'] },
+        { id: '2.1.1c', label: 'Poder de compra', keywords: ['poder de compra', 'capacidade de pagamento', 'disposição a pagar'] },
+      ]},
+      { id: '2.1.2', level: 1, label: 'Profundidade da Concorrência', description: 'A análise de concorrência deve incluir mapa de concorrentes, tabela comparativa de preços e funcionalidades, e análise de forças/fraquezas.', keywords: ['concorrente'], subCriteria: [
+        { id: '2.1.2a', label: 'Tabela Comparativa', keywords: ['tabela', 'comparativo', 'preços', 'funcionalidades'] },
+        { id: '2.1.2b', label: 'Forças/Fraquezas', keywords: ['forças', 'fraquezas', 'vantagens', 'desvantagens'] },
+      ]},
+      { id: '2.2.1', level: 2, label: 'Cálculo TAM/SAM/SOM com fontes oficiais', description: 'Exige cálculo matemático com metodologia clara e fontes oficiais (IBGE, Kantar, etc.).', keywords: ['tam', 'sam', 'som'], subCriteria: [
+        { id: '2.2.1a', label: 'Fórmula/Metodologia', keywords: ['cálculo', 'fórmula', 'metodologia'] },
+        { id: '2.2.1b', label: 'Fonte Oficial', keywords: ['ibge', 'kantar', 'anacine', 'fonte:', 'dados de'] },
+      ]},
+      { id: '2.2.2', level: 2, label: 'Prova de Demanda (Capacidade de Pagamento)', description: 'Exige prova de demanda com dados que demonstrem a capacidade de pagamento do público.', keywords: ['demanda', 'interesse', 'intenção de compra', 'capacidade de pagamento'] },
+      { id: '2.2.3', level: 2, label: 'Análise CAC Concorrentes', description: 'Exige estimativa do Custo de Aquisição de Cliente dos concorrentes.', keywords: ['cac', 'custo de aquisição', 'concorrente'] },
+      { id: '2.2.4', level: 2, label: 'Projeção de Adesão (Curva e Churn)', description: 'Exige curva de adoção de assinantes, com taxa de aquisição e churn previsto.', keywords: ['adesão', 'adoção', 'assinantes por mês', 'churn', 'curva'] },
+      { id: '2.3.1', level: 3, label: 'Coerência: Projeção Assinantes vs. DRE', description: 'A projeção de assinantes e a receita projetada no DRE devem ser consistentes.', keywords: ['assinantes', 'projeção', 'meta', 'receita', 'dre'] },
+      { id: '2.3.2', level: 3, label: 'Coerência: CAC vs. OPEX', description: 'O CAC projetado deve ser coerente com as despesas operacionais (OPEX) no plano financeiro.', keywords: ['cac', 'opex', 'orçamento de marketing', 'despesas operacionais'] },
+    ]
   },
-  { 
-    name: 'Proposta de Valor', 
-    description: 'Definir claramente a Proposta de Valor, conectando o problema do cliente à solução oferecida.',
-    matrixTargets: ['valueProposition', 'swot.strengths']
+  {
+    chapterId: '3',
+    chapterName: 'PRODUTO / SERVIÇO',
+    criteria: [
+        { id: '3.0.1', level: 0, label: 'Descrição do produto/serviço', description: 'Descrição clara do produto, benefícios, diferenciais e portfólio.', keywords: ['produto', 'serviço', 'plataforma', 'hub', 'van', 'benefícios', 'diferenciais'] },
+        { id: '3.2.1', level: 2, label: 'Prova técnica de entrega', description: 'Prova de que o produto/serviço pode ser tecnicamente entregue.', keywords: ['prova técnica', 'capacidade de entrega', 'viabilidade técnica'] },
+        { id: '3.2.2', level: 2, label: 'Pipeline operacional documentado', description: 'Documentação do pipeline operacional (captação, ingest, publicação).', keywords: ['pipeline', 'fluxo operacional', 'ingest', 'publicação', 'captação'] },
+        { id: '3.2.3', level: 2, label: 'Acessibilidade como processo', description: 'Acessibilidade (AD, Libras, CC) deve ser um processo integrado.', keywords: ['acessibilidade', 'ad', 'libras', 'closed caption', 'inclusão'] },
+        { id: '3.2.4', level: 2, label: 'Roadmap de evolução técnica', description: 'Roadmap claro da evolução técnica do produto/serviço.', keywords: ['roadmap', 'evolução técnica', 'futuro', 'fases'] },
+    ]
   },
-  { 
-    name: 'Solução/Produto/Serviço', 
-    description: 'Detalhar os produtos, serviços e o ecossistema (OTT, HUB, Van).',
-    matrixTargets: ['keyActivities', 'keyResources']
+  {
+    chapterId: '4',
+    chapterName: 'PLANO DE MARKETING',
+    criteria: [
+        { id: '4.0.1', level: 0, label: 'Estratégia de aquisição', description: 'Estratégia de aquisição de clientes, 4 Ps, posicionamento e canais.', keywords: ['marketing', 'aquisição', '4 ps', 'posicionamento', 'canais'] },
+        { id: '4.2.1', level: 2, label: 'CAC projetado', description: 'Custo de Aquisição de Cliente (CAC) deve ser projetado e justificado.', keywords: ['cac', 'custo de aquisição', 'projetado'] },
+        { id: '4.2.2', level: 2, label: 'LTV e ARPU projetados', description: 'Lifetime Value (LTV) e Receita Média por Usuário (ARPU) devem ser projetados.', keywords: ['ltv', 'lifetime value', 'arpu', 'receita por usuário'] },
+        { id: '4.2.3', level: 2, label: 'Cronograma de execução', description: 'Cronograma tático de marketing com metas trimestrais.', keywords: ['cronograma', 'marketing', 'metas', 'tático'] },
+        { id: '4.3.1', level: 3, label: 'Coerência: Projeção de vendas vs. Financeiro', description: 'A projeção de vendas deve ser coerente com as projeções financeiras.', keywords: ['projeção de vendas', 'receita', 'dre', 'financeiro'] },
+    ]
   },
-  { 
-    name: 'Marketing – 4Ps', 
-    description: 'Analisar Estratégias de Preço, Praça (Canais) e Promoção (Relacionamento).',
-    matrixTargets: ['channels', 'customerRelationships']
+  {
+    chapterId: '5',
+    chapterName: 'PLANO OPERACIONAL',
+    criteria: [
+        { id: '5.0.1', level: 0, label: 'Descrição da operação', description: 'Como a empresa funciona no dia a dia, processos e recursos.', keywords: ['operacional', 'processos', 'fluxo de trabalho', 'dia a dia'] },
+        { id: '5.2.1', level: 2, label: 'Prova de capacidade operacional', description: 'Prova de que a equipe e a estrutura conseguem executar a operação planejada.', keywords: ['capacidade operacional', 'produtividade', 'limites', 'sla'] },
+        { id: '5.3.1', level: 3, label: 'Coerência: Operação vs. Orçamento', description: 'A operação descrita deve ser compatível com o orçamento de OPEX.', keywords: ['operação', 'orçamento', 'opex', 'custos operacionais'] },
+    ]
   },
-  { 
-    name: 'Modelo de Negócio', 
-    description: 'Estruturar as Fontes de Receita e as Parcerias-Chave para a operação.',
-    matrixTargets: ['revenueStreams', 'keyPartnerships']
+  {
+    chapterId: '6',
+    chapterName: 'EQUIPE / GOVERNANÇA',
+    criteria: [
+        { id: '6.0.1', level: 0, label: 'Descrição da equipe', description: 'Quem faz parte do projeto, funções e responsabilidades.', keywords: ['equipe', 'time', 'sócios', 'funções', 'responsabilidades'] },
+        { id: '6.2.1', level: 2, label: 'Organograma completo', description: 'Exigência de um organograma claro e completo.', keywords: ['organograma', 'estrutura da equipe', 'hierarquia'] },
+        { id: '6.2.2', level: 2, label: 'Governança e divisão societária', description: 'Três níveis de governança e divisão clara entre as empresas (SCine/4Movie/Labd12).', keywords: ['governança', 'societária', 'divisão', '4movie', 'labd12'] },
+        { id: '6.2.3', level: 2, label: 'Justificativa de custo da equipe', description: 'O custo da equipe deve ser justificado e compatível com o plano financeiro.', keywords: ['custo da equipe', 'salários', 'contratos', 'orçamento'] },
+    ]
   },
-  { 
-    name: 'Operação/Processos/Recursos', 
-    description: 'Mapear os processos internos, recursos-chave e atividades essenciais.',
-    matrixTargets: ['keyActivities', 'keyResources'] // Can refine these
+  {
+    chapterId: '7',
+    chapterName: 'JURÍDICO',
+    criteria: [
+        { id: '7.2.1', level: 2, label: 'Enquadramento legal e societário', description: 'Estrutura societária e enquadramento legal do negócio.', keywords: ['jurídico', 'legal', 'societário', 'contrato social'] },
+        { id: '7.2.2', level: 2, label: 'Políticas (Privacidade e Termos)', description: 'Existência de Política de Privacidade e Termos de Uso.', keywords: ['política de privacidade', 'termos de uso', 'lgpd'] },
+        { id: '7.2.3', level: 2, label: 'Aderência à ANCINE', description: 'Conformidade com as regulamentações da ANCINE.', keywords: ['ancine', 'regulamentação', 'audiovisual'] },
+        { id: '7.2.4', level: 2, label: 'Riscos jurídicos e contratos', description: 'Matriz de riscos jurídicos e drafts de contratos (produtores, B2B).', keywords: ['riscos jurídicos', 'contratos', 'licenciamento'] },
+    ]
   },
-  { 
-    name: 'Finanças – Custos/Viabilidade', 
-    description: 'Analisar a Estrutura de Custos e os principais números de viabilidade financeira.',
-    matrixTargets: ['costStructure']
+  {
+    chapterId: '8',
+    chapterName: 'FINANCEIRO',
+    criteria: [
+        { id: '8.0.1', level: 0, label: 'DRE presente', description: 'Existência de uma Demonstração do Resultado do Exercício.', keywords: ['dre', 'demonstração de resultado'] },
+        { id: '8.0.2', level: 0, label: 'Fluxo de caixa presente', description: 'Existência de um Fluxo de Caixa projetado.', keywords: ['fluxo de caixa', 'fc', 'cash flow'] },
+        { id: '8.0.3', level: 0, label: 'Ponto de equilíbrio presente', description: 'Existência do cálculo do Ponto de Equilíbrio.', keywords: ['ponto de equilíbrio', 'break-even'] },
+        { id: '8.2.1', level: 2, label: 'DRE 5 anos', description: 'Exige que a DRE tenha uma projeção de 5 anos.', keywords: ['dre', '5 anos', 'cinco anos'] },
+        { id: '8.2.2', level: 2, label: 'Fluxo de caixa mensal', description: 'Exige que o fluxo de caixa seja detalhado mensalmente, pelo menos no primeiro ano.', keywords: ['fluxo de caixa', 'mensal'] },
+        { id: '8.2.3', level: 2, label: 'Matriz CAPEX/OPEX detalhada', description: 'Exige detalhamento dos investimentos (CAPEX) e custos operacionais (OPEX).', keywords: ['capex', 'opex', 'investimentos', 'custos operacionais'] },
+        { id: '8.2.4', level: 2, label: 'Cálculo do DSCR', description: 'Exige o cálculo do Índice de Cobertura do Serviço da Dívida.', keywords: ['dscr', 'índice de cobertura', 'serviço da dívida'] },
+        { id: '8.2.5', level: 2, label: 'Análise de Sensibilidade', description: 'Exige uma análise de sensibilidade com múltiplos cenários (otimista, pessimista, realista).', keywords: ['sensibilidade', 'cenário otimista', 'cenário pessimista'] },
+        { id: '8.2.6', level: 2, label: 'Cronograma físico-financeiro', description: 'Cronograma que conecta os desembolsos (financeiro) com as entregas (físico).', keywords: ['cronograma físico-financeiro', 'desembolso', 'entregas'] },
+    ]
   },
-  { 
-    name: 'Riscos – Internos/Externos', 
-    description: 'Identificar os principais riscos do negócio e inseri-los na matriz SWOT.',
-    matrixTargets: ['swot.weaknesses', 'swot.threats']
-  },
-  { 
-    name: 'Conclusão — Nível de Prontidão Final', 
-    description: 'Consolidar a análise, calcular o nível de prontidão e identificar as pendências finais.',
-    matrixTargets: [] // This step generates the final score and gaps
+  {
+    chapterId: '9',
+    chapterName: 'GATILHOS E COVENANTS',
+    criteria: [
+        { id: '9.2.1', level: 2, label: 'Lista de gatilhos por fase', description: 'Lista de gatilhos (eventos) que liberam as parcelas do financiamento.', keywords: ['gatilhos', 'triggers', 'fase', 'parcela'] },
+        { id: '9.2.2', level: 2, label: 'Modelo de relatório para o banco', description: 'Modelo do relatório de acompanhamento a ser enviado ao banco.', keywords: ['relatório', 'banco', 'acompanhamento'] },
+        { id: '9.2.3', level: 2, label: 'Exemplo de covenant financeiro', description: 'Exemplo de um covenant (compromisso financeiro) a ser cumprido, como manter DSCR > 1.3.', keywords: ['covenant', 'compromisso', 'financeiro', 'dscr'] },
+    ]
   }
+];
+
+// FIX: Adds the missing DIAGNOSIS_STEPS constant required by the diagnosis service and the main app component.
+// This constant defines the 10 steps of the AI diagnosis process.
+export const DIAGNOSIS_STEPS = [
+  { name: 'Entendimento do Negócio', matrixTargets: ['valueProposition', 'keyActivities'] },
+  { name: 'Análise de Clientes e Segmentos', matrixTargets: ['customerSegments'] },
+  { name: 'Canais de Distribuição e Venda', matrixTargets: ['channels'] },
+  { name: 'Relacionamento com Clientes', matrixTargets: ['customerRelationships'] },
+  { name: 'Estrutura de Receitas', matrixTargets: ['revenueStreams'] },
+  { name: 'Recursos e Ativos Chave', matrixTargets: ['keyResources'] },
+  { name: 'Parcerias Estratégicas', matrixTargets: ['keyPartnerships'] },
+  { name: 'Estrutura de Custos', matrixTargets: ['costStructure'] },
+  { name: 'Análise SWOT (Forças e Fraquezas)', matrixTargets: ['swot.strengths', 'swot.weaknesses'] },
+  { name: 'Análise SWOT (Oportunidades e Ameaças)', matrixTargets: ['swot.opportunities', 'swot.threats'] }
 ];
 
 
@@ -166,8 +272,8 @@ export const INITIAL_SECTIONS: PlanSection[] = [
   { id: '1.6.5', chapter: '1.6 DIFERENCIAIS', title: '1.6.5 Conclusão Diferenciais', description: 'Escreva um parágrafo de conclusão poderoso que sintetize todos os diferenciais, respondendo à pergunta final do avaliador: "Por que este projeto é especial e merece o investimento?"', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
 
   // --- CAPÍTULO 2: ANÁLISE DE MERCADO ---
-  { id: '2.0', chapter: '2. ANÁLISE DE MERCADO', title: '2.0 Introdução Geral', description: 'Escreva um parágrafo de abertura para a Análise de Mercado, fornecendo uma visão panorâmica do cenário atual do streaming e da economia criativa no Brasil e em Santa Catarina, e como a SCine se insere neste contexto.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
-  { id: '2.1.0', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.0 Introdução aos Clientes', description: 'Apresente um resumo executivo sobre quem é o cliente da SCine, tanto B2C quanto B2B, preparando o leitor para a análise detalhada que se segue.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
+  { id: '2.0', chapter: '2. ANÁLISE DE MERCADO', title: '2.0 Introdução Geral', description: 'Escreva um parágrafo de abertura para la Análise de Mercado, fornecendo uma visão panorâmica do cenário atual do streaming e da economia criativa no Brasil e em Santa Catarina, e como a SCine se insere neste contexto.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
+  { id: '2.1.0', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.0 Introdução aos Clientes', description: 'Apresente um resumo executivo sobre quem é o cliente da SCine, tanto B2C quanto B2B, preparando o leitor para la análise detalhada que se segue.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '2.1.1', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.1 Perfil Demográfico', description: 'Analise o perfil demográfico (gênero, idade, renda, localização) do público-alvo, baseando-se em dados de pesquisas e fontes externas (IBGE, etc.). Demonstre a aderência do público ao produto e a compatibilidade da renda com os preços propostos.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '2.1.2', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.2 Hábitos de Consumo', description: 'Analise os hábitos de consumo de mídia do público-alvo. Inclua a frequência com que consomem streaming, quais outras plataformas assinam e que tipo de conteúdo buscam. Use dados da pesquisa para responder à questão do BRDE: o hábito de pagar por streaming já existe neste público?', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '2.1.3', chapter: '2.1 ESTUDO DOS CLIENTES', title: '2.1.3 Disposição a Pagar', description: 'Investigue a disposição do público a pagar pelo serviço. Apresente as faixas de preço consideradas aceitáveis segundo a pesquisa e analise a sensibilidade a diferentes valores. O objetivo é validar se o preço proposto nos planos da SCine está alinhado com a percepção de valor do mercado.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
@@ -183,7 +289,7 @@ export const INITIAL_SECTIONS: PlanSection[] = [
   { id: '2.2.5', chapter: '2.2 CONCORRENTES', title: '2.2.5 Vantagens SCine (SWOT)', description: 'Com base na análise, liste os pontos fortes (vantagens competitivas) e fracos (desvantagens) da SCine em relação à concorrência. Foque no nicho de mercado que a SCine pode dominar.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '2.2.6', chapter: '2.2 CONCORRENTES', title: '2.2.6 Conclusão Concorrência', description: 'Escreva um parágrafo de síntese que responda à pergunta-chave: "Onde está a brecha de mercado que a SCine pode explorar para coexistir e prosperar, mesmo com a presença de grandes players?"', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '2.3.0', chapter: '2.3 FORNECEDORES', title: '2.3.0 Introdução Parceiros', description: 'Apresente este tópico como uma análise da cadeia de valor da SCine, mapeando os fornecedores e parceiros essenciais para a operação do negócio.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
-  { id: '2.3.1', chapter: '2.3 FORNECEDORES', title: '2.3.1 Fornecedores Críticos', description: 'Identifique os fornecedores críticos para a operação, como a plataforma de tecnologia (Vodlix) e os gateways de pagamento. Analise o nível de dependência e o risco operacional associado.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '2.3.1', chapter: '2.3 FORNECEDORES', title: '2.3.1 Fornecedores Críticos', description: 'Identifique os fornecedores críticos para la operação, como a plataforma de tecnologia (Vodlix) e os gateways de pagamento. Analise o nível de dependência e o risco operacional associado.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '2.3.2', chapter: '2.3 FORNECEDORES', title: '2.3.2 Parceiros Conteúdo', description: 'Liste os principais parceiros de conteúdo, como produtoras locais, artistas independentes e detentores de acervo. Para o BRDE, é importante mostrar que o pipeline de conteúdo é real e sustentável.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '2.3.3', chapter: '2.3 FORNECEDORES', title: '2.3.3 Parceiros B2B', description: 'Mapeie os parceiros estratégicos do lado B2B, como prefeituras, associações empresariais e organizadores de festivais, que podem gerar receita e visibilidade.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '2.3.4', chapter: '2.3 FORNECEDORES', title: '2.3.4 Dependência e Risco', description: 'Avalie o risco de dependência de cada fornecedor crítico e descreva as alternativas ou planos de contingência para mitigar esses riscos (ex: ter um segundo gateway de pagamento mapeado).', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
@@ -209,21 +315,21 @@ export const INITIAL_SECTIONS: PlanSection[] = [
   { id: '3.1.1', chapter: '3.1 SEGMENTAÇÃO', title: '3.1.1 B2C e B2B', description: 'Descreva os dois grandes segmentos de clientes da SCine: o consumidor final (B2C) e as empresas/instituições (B2B), destacando as diferenças de abordagem para cada um.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '3.1.2', chapter: '3.1 SEGMENTAÇÃO', title: '3.1.2 Foco Inicial', description: 'Defina qual será o foco de mercado prioritário para os primeiros 24 meses de operação, justificando a escolha (ex: focar na base B2C para validar o modelo antes de escalar o B2B).', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '3.1.3', chapter: '3.1 SEGMENTAÇÃO', title: '3.1.3 Posicionamento', description: 'Defina o posicionamento da SCine, justificando como ele cria uma vantagem competitiva sustentável frente aos concorrentes. Analise como essa identidade de marca se traduzirá em menor Custo de Aquisição de Cliente (CAC) e maior Lifetime Value (LTV), provando seu impacto na viabilidade financeira.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
-  { id: '3.1.4', chapter: '3.1 SEGMENTAÇÃO', title: '3.1.4 Proposta de Valor', description: 'Refine a Proposta de Valor sob a ótica de marketing. Qual é o diferencial concreto e comunicável que fará o cliente escolher a SCine em vez de outras opções?', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '3.1.4', chapter: '3.1 SEGMENTAÇÃO', title: '3.1.4 Proposta de Valor', description: 'Refine a Proposta de Valor sob la ótica de marketing. Qual é o diferencial concreto e comunicável que fará o cliente escolher a SCine em vez de outras opções?', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '3.1.5', chapter: '3.1 SEGMENTAÇÃO', title: '3.1.5 Conclusão Segmentação', description: 'Faça uma conclusão sobre a estratégia de segmentação, respondendo: "O foco de mercado está correto e o posicionamento da marca é claro e defensável?"', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '3.2.0', chapter: '3.2 PORTFÓLIO', title: '3.2.0 Intro Portfólia', description: 'Introduza o portfólio de produtos e serviços, explicando como ele materializa a Proposta de Valor da SCine.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '3.2.1', chapter: '3.2 PORTFÓLIO', title: '3.2.1 Planos B2C', description: 'Detalhe a estrutura dos planos de assinatura para o consumidor final (B2C), como os níveis Free (AVOD), Star e Premium (SVOD). Especifique o que cada plano oferece (resolução, número de telas, acesso a conteúdo exclusivo, etc.)', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '3.2.2', chapter: '3.2 PORTFÓLIO', title: '3.2.2 Serviços B2B', description: 'Descreva o portfólio de serviços para o mercado B2B, incluindo: aluguel de estúdios e ilhas de edição no HUB, serviços de transmissão de eventos com a Van 4K, e criação de canais corporativos (brand channels) na plataforma OTT.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
-  { id: '3.2.3', chapter: '3.2 PORTFÓLIO', title: '3.2.3 Mix Conteúdo', description: 'Analise a estratégia de mix de conteúdo sob a ótica financeira e de risco. Justifique a proporção entre conteúdo próprio (maior custo, maior diferencial), licenciado (menor custo, menor exclusividade) e de parceiros. Demonstre como esse mix otimiza o orçamento e maximiza a retenção de assinantes.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
-  { id: '3.2.4', chapter: '3.2 PORTFÓLIO', title: '3.2.4 Diferenciais', description: 'Liste os diferenciais competitivos do portfólio, como a exclusividade do conteúdo regional, a integração entre os serviços (OTT + HUB + Van) e o compromisso com a acessibilidade em todas as produções.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '3.2.3', chapter: '3.2 PORTFÓLIO', title: '3.2.3 Mix Conteúdo', description: 'Analise a estratégia de mix de conteúdo sob la ótica financeira e de risco. Justifique a proporção entre conteúdo próprio (maior custo, maior diferencial), licenciado (menor custo, menor exclusividade) e de parceiros. Demonstre como esse mix otimiza o orçamento e maximiza a retenção de assinantes.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '3.2.4', chapter: '3.2 PORTFÓLIO', title: '3.2.4 Diferenciais', description: 'Liste os diferenciais competitivos do portfólio, como a exclusividade do conteúdo regional, a integração entre os serviços (OTT + HUB + Van) e o compromisso com la acessibilidade em todas as produções.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
   { id: '3.2.5', chapter: '3.2 PORTFÓLIO', title: '3.2.5 Conclusão Portfólio', description: 'Faça uma síntese do portfólio, respondendo se a oferta de produtos e serviços é coerente, atrativa para os segmentos-alvo e financeiramente sustentável.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
 
   // --- CAPÍTULO 11: DOCUMENTOS COMPLEMENTARES ---
   { id: '11.0', chapter: '11. DOCUMENTOS COMPLEMENTARES', title: '11.0 Introdução aos Documentos Complementares', description: 'Este capítulo serve para apresentar as evidências documentais que suportam as afirmações feitas ao longo do plano. Cada subseção deve extrair e apresentar os dados mais relevantes do documento correspondente, tornando o texto autossuficiente.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '11.1.1', chapter: '11.1 DOCUMENTOS SOCIETÁRIOS', title: '11.1.1 Contratos/Estatutos', description: 'Com base nos Contratos Sociais ou Estatutos anexados, apresente um resumo da estrutura societária, capital social, objeto social e quadro de sócios e administradores das empresas envolvidas (SCine, 4Movie, Labd12).', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '11.2.1', chapter: '11.2 PESQUISAS E ESTUDOS', title: '11.2.1 Pesquisa de Público', description: 'Com base na pesquisa de público anexada, escreva um resumo executivo apresentando os dados demográficos, hábitos de consumo e disposição a pagar. Incorpore tabelas e estatísticas-chave que validem as premissas de demanda usadas no Plano Financeiro.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
-  { id: '11.3.1', chapter: '11.3 ORÇAMENTOS', title: '11.3.1 Equipamentos e Obras', description: 'Com base nos orçamentos de fornecedores anexados, crie uma tabela consolidada detalhando os custos de CAPEX para a aquisição de equipamentos (HUB, Van 4K) e para as obras civis do HUB. O total deve ser consistente com o valor de investimento solicitado.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
-  { id: '11.4.1', chapter: '11.4 DOCUMENTOS TÉCNICOS', title: '11.4.1 Plantas e Layouts', description: 'Com base nas plantas e projetos técnicos anexados, descreva a distribuição do espaço do HUB Audiovisual, incluindo a área dos estúdios, ilhas de edição e espaços de apoio. A descrição deve validar a capacidade operacional planejada.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
+  { id: '11.3.1', chapter: '11.3 ORÇAMENTOS', title: '11.3.1 Equipamentos e Obras', description: 'Com base nos orçamentos de fornecedores anexados, crie uma tabela consolidada detalhando os custos de CAPEX para la aquisição de equipamentos (HUB, Van 4K) e para as obras civis do HUB. O total deve ser consistente com o valor de investimento solicitado.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
+  { id: '11.4.1', chapter: '11.4 DOCUMENTOS TÉCNICOS', title: '11.4.1 Plantas e Layouts', description: 'Com base nas plantas e projetos técnicos anexados, descreva a distribuição do espaço do HUB Audiovisual, incluindo la área dos estúdios, ilhas de edição e espaços de apoio. A descrição deve validar a capacidade operacional planejada.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '11.5.1', chapter: '11.5 CURRÍCULOS E PORTFÓLIOS', title: '11.5.1 CVs e Portfólios Chave', description: 'Com base nos currículos e portfólios anexados, escreva um parágrafo para cada sócio ou membro-chave da equipe, destacando os projetos e experiências anteriores que comprovam a capacidade de execução do time.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '11.6.1', chapter: '11.6 CARTAS E CONTRATOS', title: '11.6.1 Cartas de Intenção', description: 'Com base nas cartas de intenção de parceiros (B2B, conteúdo) anexadas, resuma os compromissos ou interesses formalizados, demonstrando que já existe uma tração inicial de mercado e um pipeline de conteúdo/receita.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
   { id: '11.7.1', chapter: '11.7 DADOS HISTÓRICOS', title: '11.7.1 Balanços e Faturamento', description: 'Com base nos balanços e históricos de faturamento das empresas existentes (4Movie, Labd12), apresente um resumo da saúde financeira e da capacidade de geração de receita pré-projeto, o que serve como um indicador de capacidade de gestão para o BRDE.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT, isLocked: true },
@@ -235,6 +341,8 @@ export const DEFAULT_METHODOLOGY = 'SEBRAE / BRDE';
 const emptyCanvasBlock = { items: [], description: '', source: '', clarityLevel: 0 };
 const emptySwotBlock = { items: [], description: '', source: '', clarityLevel: 0 };
 
+// FIX: Removed invalid text from the end of the file that was causing multiple syntax errors.
+// The text 'corrija os problemas que voce encontrar no codigo --- END OF FILE ---' was appended after this constant.
 export const DEFAULT_STRATEGIC_MATRIX: StrategicMatrix = {
     customerSegments: { ...emptyCanvasBlock },
     valueProposition: { ...emptyCanvasBlock },
