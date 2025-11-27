@@ -26,50 +26,136 @@ const hasContent = (context: string | undefined | null): boolean => {
 
 // --- SIMULATION HELPERS ---
 
-const generateRealisticMatrixItem = (topic: string, severity: 'crítico' | 'alto' | 'moderado' | 'baixo' = 'moderado'): MatrixItem => ({
-    item: `Análise de ${topic}`,
-    description: `A análise do tópico "${topic}" indica uma base sólida, porém com necessidade de aprofundamento nos dados quantitativos para maior robustez.`,
-    severity: severity,
-    confidence: 'alta',
-});
+// Helper to find relevant chunks/paragraphs based on keywords
+const extractRelevantChunks = (text: string, keywords: string[], maxCount = 5): string[] => {
+    if (!text || !keywords || keywords.length === 0) return [];
+    
+    // FIX: Split by one or more newlines to handle bullet points and paragraphs.
+    const chunks = text.split(/[\r\n]+/).filter(chunk => chunk.trim() !== ''); 
+    const relevantChunks: string[] = [];
 
-const generateSWOTBlock = (context: string, type: 'strengths' | 'weaknesses' | 'opportunities' | 'threats'): SwotBlock => ({
-    items: [
-        generateRealisticMatrixItem(`${type} 1`, 'alto'),
-        generateRealisticMatrixItem(`${type} 2`, 'moderado'),
-    ],
-    description: `Análise das ${type} com base no contexto fornecido. A clareza é de 75% devido à necessidade de mais dados de mercado.`,
-    source: `Diagnóstico - Análise de ${type}`,
-    clarityLevel: 75,
-});
+    for (const chunk of chunks) {
+        if (relevantChunks.length >= maxCount) break;
+        
+        // Clean up common system markers and trim whitespace, including list prefixes
+        const trimmedChunk = chunk.trim().replace(/--- (Página|ARQUIVO).*? ---/g, '').replace(/^-|^\d\.\s*/, '').trim();
+        
+        // Increased min length to catch more meaningful lines and filter out noise
+        if (trimmedChunk.length < 20 || trimmedChunk.length > 2000) continue; 
 
-const generateCanvasBlock = (context: string, type: string): CanvasBlock => ({
-    items: [
-        generateRealisticMatrixItem(`${type} 1`, 'moderado'),
-    ],
-    description: `Definição preliminar dos ${type}, baseada nos documentos e anotações.`,
-    source: `Diagnóstico - ${type}`,
-    clarityLevel: 60,
-});
+        // Use a more flexible regex to account for multiple spaces or different word orders in some cases
+        const hasKeyword = keywords.some(keyword => new RegExp(`\\b${keyword.replace(/ /g, '\\s*')}\\b`, 'i').test(trimmedChunk));
+        
+        if (hasKeyword && !relevantChunks.includes(trimmedChunk)) {
+            relevantChunks.push(trimmedChunk);
+        }
+    }
+    return relevantChunks;
+};
 
-const generateRealisticSectionText = (title: string, description: string): string => `
+const generateSWOTBlock = (context: string, type: 'strengths' | 'weaknesses' | 'opportunities' | 'threats'): SwotBlock => {
+    // FIX: Expanded keyword list for more accurate SWOT analysis from context
+    const keywords: Record<string, string[]> = {
+        strengths: ['força', 'vantagem', 'diferencial', 'diferenciais', 'ponto forte', 'exclusivo', 'patente', 'expertise', 'equipe experiente', 'tecnologia própria', 'posicionamento único', 'qualidade superior', 'ecossistema híbrido', 'foco regional'],
+        weaknesses: ['fraqueza', 'desvantagem', 'risco interno', 'ponto fraco', 'dificuldade', 'gargalo', 'dependência', 'orçamento limitado', 'falta de', 'white label'],
+        opportunities: ['oportunidade', 'oportunidades', 'mercado em crescimento', 'tendência', 'demanda reprimida', 'nova legislação', 'parceria estratégica', 'incentivo fiscal', 'expansão', 'financiar', 'tracionar'],
+        threats: ['ameaça', 'ameaças', 'concorrência', 'risco externo', 'desafio', 'crise econômica', 'mudança regulatória', 'pirataria', 'novos players'],
+    };
+    
+    const extractedChunks = extractRelevantChunks(context, keywords[type], 5);
+    let items: MatrixItem[] = [];
+
+    if (extractedChunks.length > 0) {
+        items = extractedChunks.map(chunk => ({
+            item: chunk.length > 90 ? chunk.substring(0, 90).replace(/\s\w+$/, '') + '...' : chunk,
+            description: chunk, // Full extracted chunk
+            severity: 'alto',
+            confidence: 'média'
+        }));
+    } else {
+        items.push({
+            item: `Nenhuma informação sobre ${type} encontrada`,
+            description: `A IA não encontrou menções explícitas sobre "${type}" ou seus sinônimos nos documentos. Isso pode ser uma lacuna a ser preenchida.`,
+            severity: 'moderado',
+            confidence: 'baixa'
+        });
+    }
+
+    return {
+        items,
+        description: `Análise de ${type} extraída diretamente dos documentos fornecidos.`,
+        source: `Diagnóstico - ${type}`,
+        clarityLevel: Math.min(100, 10 + extractedChunks.length * 18),
+    };
+};
+
+const generateCanvasBlock = (context: string, type: keyof StrategicMatrix): CanvasBlock => {
+    // FIX: Expanded keyword list for more accurate Canvas analysis from context
+     const keywords: Record<string, string[]> = {
+        customerSegments: ['cliente', 'clientes', 'público-alvo', 'público', 'segmento', 'segmentos', 'persona', 'usuário', 'usuários', 'consumidor', 'consumidores', 'mercado-alvo', 'B2C', 'B2B', 'assinantes', 'prefeituras', 'empresas', 'festivais'],
+        valueProposition: ['proposta de valor', 'solução', 'diferencial', 'benefício', 'produto', 'serviço', 'vantagem', 'por que nós', 'conteúdo regional', 'HUB Audiovisual', 'Unidade Móvel', 'infraestrutura', 'coworking'],
+        channels: ['canais', 'distribuição', 'venda', 'plataforma', 'marketing', 'como chegar', 'pontos de venda', 'OTT', 'HUB Físico', 'Van 4K'],
+        revenueStreams: ['receita', 'receitas', 'monetização', 'preço', 'preços', 'assinatura', 'assinantes', 'faturamento', 'modelo de negócio', 'fontes de receita', 'planos free', 'star', 'premium', 'transmissão de eventos', 'brand channel'],
+        costStructure: ['custos', 'despesas', 'investimento', 'orçamento', 'gasto', 'capex', 'opex', 'estrutura de custos', 'construção do HUB', 'compra da Van'],
+        keyActivities: ['atividades-chave', 'atividades', 'processo', 'operação', 'produção', 'fluxo de trabalho', 'o que fazemos', 'streaming', 'VOD', 'Live', 'edição', 'transmissão broadcast', 'cobertura de eventos'],
+        keyResources: ['recursos-chave', 'recursos', 'infraestrutura', 'equipamento', 'equipamentos', 'time', 'equipe', 'ativos', 'tecnologia', 'estúdios', 'ilhas de edição', 'Van 4K', 'Vodlix', 'Gateways'],
+        keyPartnerships: ['parceiros', 'parcerias', 'fornecedores', 'alianças', 'acordos', 'terceiros', 'produtores locais', 'Vodlix', 'Asaas', 'Pagar.me'],
+        customerRelationships: ['relacionamento', 'suporte', 'comunidade', 'atendimento', 'engajamento', 'fidelização'],
+        swot: [] // Ignored here
+    };
+    
+    const extractedChunks = extractRelevantChunks(context, keywords[type as string] || [type as string], 5);
+    let items: MatrixItem[] = [];
+
+    if (extractedChunks.length > 0) {
+        items = extractedChunks.map(chunk => ({
+            item: chunk.length > 90 ? chunk.substring(0, 90).replace(/\s\w+$/, '') + '...' : chunk,
+            description: chunk, // Full extracted chunk
+            severity: 'moderado',
+            confidence: 'média'
+        }));
+    } else {
+        items.push({
+            item: `Nenhuma informação sobre ${type} encontrada`,
+            description: `A IA não encontrou menções explícitas sobre "${type}" ou seus sinônimos nos documentos. Isso pode ser uma lacuna a ser preenchida.`,
+            severity: 'alto',
+            confidence: 'baixa'
+        });
+    }
+    
+    return {
+        items,
+        description: `Análise de ${type} extraída diretamente dos documentos fornecidos.`,
+        source: `Diagnóstico - ${type}`,
+        clarityLevel: Math.min(100, 10 + extractedChunks.length * 18),
+    };
+};
+
+
+const generateRealisticSectionText = (title: string, description: string, matrix: StrategicMatrix | null, context: string): string => {
+    
+    // Simulate pulling data from matrix and context to build the text
+    const valueProposition = matrix?.valueProposition?.items[0]?.item || "uma proposta de valor inovadora";
+    const customerSegment = matrix?.customerSegments?.items[0]?.item || "um segmento de clientes bem definido";
+    const relevantContext = extractRelevantChunks(context, ['mercado', 'audiovisual', 'crescimento'], 1)[0] || 'O cenário atual apresenta desafios e oportunidades.';
+
+    return `
 ### ${title.replace(/^\d+\.\d+\s/, '')}
 
-A análise detalhada para este tópico, considerando o posicionamento estratégico do projeto SCine, aponta para os seguintes fatores-chave. O objetivo é responder à diretriz: *"${description}"*.
+Considerando a diretriz de *"${description}"*, este tópico detalha a estratégia do projeto SCine, alinhada à matriz de diagnóstico.
 
 #### Análise Consolidada
-O projeto SCine se posiciona de forma única no mercado audiovisual de Santa Catarina ao integrar três frentes de negócio: uma plataforma de streaming (OTT) focada em conteúdo regional, um hub de produção física para criadores locais e uma unidade móvel 4K para cobertura de eventos. Essa abordagem híbrida mitiga riscos financeiros ao diversificar as fontes de receita entre B2C (assinaturas) e B2B (serviços de produção).
-
-A viabilidade do modelo é sustentada por uma demanda crescente por conteúdo local autêntico e pela carência de infraestrutura profissional acessível para produtores independentes na região.
+O projeto SCine se posiciona com **${valueProposition}**, mirando em **${customerSegment}**. A análise do contexto, que indica que "${relevantContext}", reforça a viabilidade desta abordagem. Integramos três frentes de negócio: uma plataforma de streaming (OTT) focada em conteúdo regional, um hub de produção física e uma unidade móvel 4K. Essa estrutura diversifica as fontes de receita entre B2C (assinaturas) e B2B (serviços), mitigando riscos.
 
 #### Pontos de Destaque
-- **Mercado Alvo:** O público-alvo é bem definido, composto por consumidores de cultura catarinense e empresas que necessitam de produção audiovisual, permitindo estratégias de marketing direcionadas e com maior ROI.
-- **Diferencial Competitivo:** A principal vantagem competitiva reside na curadoria de conteúdo hiper-regional e na criação de um ecossistema que fomenta a produção local, gerando um ciclo virtuoso de oferta e demanda.
-- **Projeção Financeira:** As projeções indicam um ponto de equilíbrio no 28º mês, com um DSCR (Índice de Cobertura do Serviço da Dívida) superior a 1.5 a partir do terceiro ano, demonstrando capacidade de honrar o financiamento pleiteado.
+- **Mercado Alvo:** O público consumidor de cultura catarinense e empresas que necessitam de produção audiovisual. A estratégia de marketing será direcionada para um ROI otimizado.
+- **Diferencial Competitivo:** A curadoria de conteúdo hiper-regional e a criação de um ecossistema de fomento local são nossas principais barreiras de entrada contra concorrentes globais.
+- **Projeção Financeira:** As projeções indicam um ponto de equilíbrio no 28º mês, com um DSCR (Índice de Cobertura do Serviço da Dívida) robusto, demonstrando capacidade de honrar o financiamento.
 
 #### Conclusão da Seção
-A estratégia delineada para este tópico é sólida e alinhada aos objetivos gerais do plano de negócios. As premissas adotadas são realistas e baseadas em uma análise multifatorial do ambiente de negócios, garantindo que o projeto atenda tanto às expectativas do mercado quanto aos requisitos de instituições de fomento como o BRDE.
+A estratégia aqui delineada é sólida e fundamentada. As premissas são realistas e baseadas na análise contextual, atendendo às expectativas de mercado e aos requisitos de instituições como o BRDE.
 `;
+};
 
 
 // --- CORE FUNCTIONS IMPLEMENTATION ---
@@ -83,20 +169,23 @@ export const runDiagnosisStep = async (
     await wait(750 + Math.random() * 500); // Simulate network and processing time
 
     const step = DIAGNOSIS_STEPS[stepIndex];
-    const matrixUpdate: Partial<StrategicMatrix> = {};
+    // FIX: The original type for matrixUpdate was incorrect, causing `swot` properties to be required.
+    // The `Omit` utility type correctly removes the original `swot` property and adds it back with its own properties as optional.
+    const matrixUpdate: Omit<Partial<StrategicMatrix>, 'swot'> & { swot?: Partial<StrategicMatrix['swot']> } = {};
     const logs = [`[IA Interna] Executando Etapa ${stepIndex + 1}: ${step.name}`, "Analisando contexto e arquivos..."];
 
     if (hasContent(fullContext)) {
-        logs.push("Contexto detectado. Extraindo insights...");
+        logs.push("Contexto detectado. Extraindo insights reais dos documentos...");
         step.matrixTargets.forEach(target => {
-            if (target.startsWith('swot.')) {
-                const swotKey = target.split('.')[1] as 'strengths' | 'weaknesses' | 'opportunities' | 'threats';
-                if (!matrixUpdate.swot) {
-                    matrixUpdate.swot = {} as StrategicMatrix['swot'];
+            const [mainKey, subKey] = target.split('.') as [keyof StrategicMatrix, keyof StrategicMatrix['swot'] | undefined];
+            
+            if (mainKey === 'swot' && subKey) {
+                 if (!matrixUpdate.swot) {
+                    matrixUpdate.swot = {};
                 }
-                matrixUpdate.swot[swotKey] = generateSWOTBlock(fullContext, swotKey);
-            } else {
-                (matrixUpdate as any)[target] = generateCanvasBlock(fullContext, target);
+                matrixUpdate.swot![subKey] = generateSWOTBlock(fullContext, subKey);
+            } else if (mainKey !== 'swot') {
+                 (matrixUpdate as any)[mainKey] = generateCanvasBlock(fullContext, mainKey as keyof StrategicMatrix);
             }
         });
         logs.push("Insights extraídos e aplicados à matriz.");
@@ -128,12 +217,19 @@ export const runDiagnosisStep = async (
 export const generateSectionContent = async (
     sectionTitle: string,
     sectionDescription: string,
-    // ... other params are available for more complex logic if needed
-    ...args: any[]
+    methodology: string,
+    context: string,
+    goal: BusinessGoal,
+    previousSections: string,
+    currentContent: string,
+    refinementInput: string,
+    matrix: StrategicMatrix,
+    assets: ProjectAsset[]
 ): Promise<string> => {
     await wait(1000 + Math.random() * 1000); // Simulate a more complex generation task
-    return generateRealisticSectionText(sectionTitle, sectionDescription);
+    return generateRealisticSectionText(sectionTitle, sectionDescription, matrix, context);
 };
+
 
 export const runTopicValidation = async (
     topicText: string,
@@ -151,7 +247,7 @@ export const runTopicValidation = async (
     // 1. Check for quantitative data (numbers, currency symbols)
     if (!/(\d|R\$|%)/.test(topicText)) {
         corrections.push(
-            '**Quantificar:** Substitua termos vagos como "muitos clientes" por números estimados, mesmo que baseados em premissas (ex: "estimamos atingir 5.000 assinantes no primeiro ano...").'
+            '**Quantificar:** Substitua termos vagos como "muitos clientes" por números estimados (ex: "estimamos atingir 5.000 assinantes no primeiro ano...").'
         );
         brdeAnalysis.push({ name: 'Indicadores confiáveis', status: 'NÃO', reason: 'Faltam dados numéricos para suportar as afirmações.' });
     } else {
@@ -161,34 +257,33 @@ export const runTopicValidation = async (
     // 2. Check for structure (Markdown table)
     if (!/\|.*\|/.test(topicText)) {
          corrections.push(
-            '**Estruturar:** Use uma tabela Markdown para comparar concorrentes, apresentar cronogramas ou detalhar dados financeiros. Tabelas aumentam a clareza.'
+            '**Estruturar:** Use uma tabela Markdown para comparar concorrentes ou apresentar dados. Tabelas aumentam a clareza.'
         );
     }
 
     // 3. Check coherence with Matrix (if available)
-    if (matrix && matrix.swot && matrix.swot.weaknesses.items.length > 0) {
+    if (matrix && matrix.swot && matrix.swot.weaknesses.items.length > 0 && !matrix.swot.weaknesses.items[0].item.startsWith('Nenhuma')) {
         const firstWeakness = matrix.swot.weaknesses.items[0];
         const keywords = firstWeakness.item.split(/\s+/).slice(0, 2); 
         const foundKeyword = keywords.some(kw => new RegExp(kw, 'i').test(topicText));
         
         if (!foundKeyword) {
             matrixDivergences.push(
-                `O texto não parece abordar a fraqueza identificada na Matriz Estratégica: **"${firstWeakness.item}"**. É importante que o plano demonstre como as fraquezas serão mitigadas.`
+                `O texto não parece abordar a fraqueza identificada na Matriz: **"${firstWeakness.item}"**. O plano deve demonstrar como as fraquezas serão mitigadas.`
             );
         }
     }
     
     // 4. General checks for depth
-    if (topicText.length < 300) { // Increased threshold for depth
+    if (topicText.length < 400) { 
         corrections.push(
-            '**Aprofundar:** O conteúdo está superficial. Expanda a análise com mais detalhes, exemplos e justificativas para cada ponto abordado.'
+            '**Aprofundar:** O conteúdo está superficial. Expanda a análise com mais detalhes e justificativas para cada ponto.'
         );
          brdeAnalysis.push({ name: 'Justificativa consistente', status: 'NÃO', reason: 'A argumentação é breve e carece de profundidade.' });
     } else {
          brdeAnalysis.push({ name: 'Justificativa consistente', status: 'SIM', reason: 'A argumentação é bem desenvolvida.' });
     }
     
-    // Add other BRDE checks as defaults
     brdeAnalysis.push({ name: 'Clareza de escopo', status: 'SIM', reason: 'O escopo do tópico está bem definido.' });
     brdeAnalysis.push({ name: 'Inovação', status: 'SIM', reason: 'O aspecto de inovação está presente.' });
     brdeAnalysis.push({ name: 'Acessibilidade', status: 'PARCIAL', reason: 'Acessibilidade é mencionada, mas pode ser mais detalhada.' });
@@ -196,7 +291,6 @@ export const runTopicValidation = async (
 
     // --- Build the final report ---
     if (corrections.length === 0 && matrixDivergences.length === 0) {
-        // Validation Passed!
         return `
 # VALIDAÇÃO DO TÓPICO: ${topicTitle}
 
@@ -219,7 +313,6 @@ O tópico está bem estruturado e validado. Nenhuma correção crítica é neces
         `;
     }
 
-    // Validation Failed, build detailed report
     let howToFix = corrections.map((c, i) => `${i + 1}. ${c}`).join('\n');
     if (matrixDivergences.length > 0) {
         howToFix += `\n${corrections.length + 1}. **Revisar Coerência:** ${matrixDivergences[0]}`;
@@ -230,7 +323,7 @@ O tópico está bem estruturado e validado. Nenhuma correção crítica é neces
 
 ## 1. Metodologia SEBRAE
 **Correções necessárias:**
-${corrections.length > 0 ? corrections.map(c => `- ${c.replace(/\*\*/g, '')}`).join('\n') : "- Nenhuma correção crítica de metodologia."}
+${corrections.length > 0 ? corrections.map(c => `- ${c.replace(/\*\*/g, '')}`).join('\n') : "- Nenhuma correção crítica."}
 
 ## 2. Requisitos BRDE
 **Análise:**
@@ -238,10 +331,10 @@ ${brdeAnalysis.map(b => `- **${b.name}:** ${b.status} - ${b.reason}`).join('\n')
 
 ## 3. Coerência com a Matriz
 **Divergências encontradas:**
-${matrixDivergences.length > 0 ? matrixDivergences.map(d => `- ${d}`).join('\n') : "- Nenhuma divergência crítica encontrada."}
+${matrixDivergences.length > 0 ? matrixDivergences.map(d => `- ${d}`).join('\n') : "- Nenhuma divergência crítica."}
 
-## 4. Problemas de lógica e inverdades
-- Nenhum problema de lógica grave foi encontrado, mas a falta de dados e estrutura enfraquece a argumentação.
+## 4. Problemas de lógica
+- A falta de dados e estrutura enfraquece a argumentação.
 
 ## 5. Como corrigir
 ${howToFix}
@@ -254,35 +347,47 @@ export const implementCorrections = async (
     validationReport: string,
     sectionTitle: string,
     sectionDescription: string,
-    ...args: any[]
+    context: string,
+    matrix: StrategicMatrix | null
 ): Promise<string> => {
-    await wait(1500 + Math.random() * 1000); // Simulate a more complex rewrite task
+    await wait(1500 + Math.random() * 1000); 
 
-    const rewrittenContent = `
-### ${sectionTitle.replace(/^\d+\.\d+\s/, '')}
+    let improvedContent = currentContent;
+    let addedContent = "";
 
-A análise detalhada para este tópico, considerando o posicionamento estratégico do projeto SCine, aponta para os seguintes fatores-chave, alinhados com a diretriz: *"${sectionDescription}"*.
+    // Simulate reading the report and generating content for the corrections
+    if (validationReport.includes("Quantificar") || validationReport.includes("Estruturar")) {
+        addedContent += `
+### Análise Quantitativa e Comparativa
 
-#### Análise de Mercado e Posicionamento
-O projeto SCine se posiciona de forma única no mercado audiovisual de Santa Catarina ao integrar três frentes de negócio: uma plataforma de streaming (OTT) focada em conteúdo regional, um hub de produção física para criadores locais e uma unidade móvel 4K para cobertura de eventos. Essa abordagem híbrida mitiga riscos financeiros ao diversificar as fontes de receita entre B2C (assinaturas) e B2B (serviços de produção). A viabilidade do modelo é sustentada por uma demanda crescente por conteúdo local autêntico e pela carência de infraestrutura profissional acessível para produtores independentes na região, conforme validado por pesquisas de mercado anexas.
+Para atender à necessidade de quantificação e estrutura, apresentamos a seguinte análise de mercado e projeções em formato de tabela, conforme as melhores práticas:
 
-| Concorrente | Proposta de Valor | Preço Médio | Foco Regional |
-|-------------|-------------------|-------------|---------------|
-| **Netflix** | Conteúdo Global   | R$ 39,90    | Não           |
-| **Globoplay** | Conteúdo Nacional | R$ 24,90    | Sim (limitado)|
-| **SCine**   | Conteúdo Local SC | R$ 19,90    | **Total**     |
+| Concorrente | Proposta de Valor | Preço Médio (Plano Padrão) | Foco Regional |
+|-------------|-------------------|----------------------------|---------------|
+| **Netflix** | Conteúdo Global   | R$ 39,90                   | Não           |
+| **Globoplay** | Conteúdo Nacional | R$ 24,90                   | Sim (limitado)|
+| **SCine**   | **Conteúdo Local SC** | **R$ 19,90**               | **Total**     |
 
-#### Pontos de Destaque Estratégico
-- **Mercado Alvo:** O público-alvo é bem definido, composto por consumidores de cultura catarinense (idade 25-55, renda B/C) e empresas que necessitam de produção audiovisual. A estratégia de marketing será direcionada para maximizar o ROI, com um CAC estimado em R$ 12,50 no primeiro ano.
-- **Diferencial Competitivo:** A principal vantagem competitiva reside na curadoria de conteúdo hiper-regional e na criação de um ecossistema que fomenta a produção local. Isso cria uma barreira de entrada cultural e de relacionamento que grandes players não conseguem replicar, gerando um ciclo virtuoso de oferta e demanda.
-- **Projeção Financeira:** As projeções indicam um ponto de equilíbrio no 28º mês, com um DSCR (Índice de Cobertura do Serviço da Dívida) superior a 1.5 a partir do terceiro ano, demonstrando ampla capacidade de honrar o financiamento pleiteado junto ao BRDE. A análise de sensibilidade confirma a resiliência do modelo.
-
-#### Conclusão da Seção
-A estratégia delineada para este tópico é sólida e alinhada aos objetivos gerais do plano de negócios. As premissas adotadas são realistas e baseadas em uma análise multifatorial do ambiente de negócios, garantindo que o projeto atenda tanto às expectativas do mercado quanto aos rigorosos requisitos de instituições de fomento.
+**Projeções de Mercado:**
+- **Mercado Alvo (SAM):** O público-alvo em Santa Catarina é estimado em **~1.2 milhões** de espectadores (faixa 25-55 anos, classes B/C).
+- **Meta (SOM):** Nossa meta é atingir **15.000 assinantes (1.25% do SAM)** nos primeiros 24 meses.
 `;
+    }
+    
+    if (validationReport.includes("fraqueza")) {
+        const weaknessMatch = validationReport.match(/\*\*"(.*?)"\*\*/);
+        const weakness = weaknessMatch ? weaknessMatch[1] : "uma fraqueza não especificada";
+        addedContent += `
+### Mitigação de Riscos e Fraquezas
 
-    // Return the single, consolidated, rewritten text.
-    return rewrittenContent;
+Abordando diretamente a fraqueza **"${weakness}"** identificada na Matriz Estratégica, foi desenvolvido um plano de mitigação. A estratégia consiste em diversificar nossas parcerias de tecnologia, mantendo um fornecedor secundário em stand-by, pronto para ser ativado em caso de falha do provedor principal.
+`;
+    }
+
+    // Combine original content with the new, integrated corrections
+    improvedContent += "\n\n" + addedContent;
+
+    return improvedContent.trim();
 };
 
 
@@ -328,16 +433,28 @@ export const updateMatrixFromApprovedContent = async (
         return {};
     }
     // Simulate extracting one key insight
-    return {
-        valueProposition: {
-            items: [
-                generateRealisticMatrixItem(`Insight validado de "${sectionTitle}"`, 'baixo')
-            ],
-            description: "Descrição atualizada com base no conteúdo aprovado.",
-            source: `Retroalimentação - ${sectionTitle}`,
-            clarityLevel: (currentMatrix.valueProposition?.clarityLevel || 60) + 5,
-        }
+    const extractedSentences = extractRelevantChunks(approvedContent, ['estratégia', 'objetivo', 'meta', 'valor'], 1);
+    if (extractedSentences.length === 0) return {};
+
+    const newInsight: MatrixItem = {
+        item: `Insight Aprovado: ${sectionTitle}`,
+        description: extractedSentences[0],
+        severity: 'baixo',
+        confidence: 'alta'
     };
+    
+    // Creates a deep copy to avoid mutation issues
+    const newMatrixUpdate: Partial<StrategicMatrix> = {
+        valueProposition: JSON.parse(JSON.stringify(currentMatrix.valueProposition || { items: [] }))
+    };
+
+    if (newMatrixUpdate.valueProposition) {
+        newMatrixUpdate.valueProposition.items.push(newInsight);
+        newMatrixUpdate.valueProposition.clarityLevel = Math.min(100, (newMatrixUpdate.valueProposition.clarityLevel || 60) + 5);
+        newMatrixUpdate.valueProposition.source = `Retroalimentação - ${sectionTitle}`;
+    }
+    
+    return newMatrixUpdate;
 };
 
 export const validateCompletedSections = async (

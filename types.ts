@@ -177,7 +177,10 @@ export interface DiagnosisResponse {
 // Result from a single step of the 10-step diagnosis
 export interface DiagnosisStepResult {
   logs: string[];
-  matrixUpdate: Partial<StrategicMatrix>;
+  // FIX: Updated type to allow for deep partial updates. The original `Partial<StrategicMatrix>`
+  // was too strict for nested objects like `swot`, causing a type error in `services/gemini.ts`.
+  // This new type accurately reflects the shape of the data returned by `runDiagnosisStep`.
+  matrixUpdate: Omit<Partial<StrategicMatrix>, 'swot'> & { swot?: Partial<StrategicMatrix['swot']> };
   // The final step will also include the overall diagnosis
   finalDiagnosis?: {
     overallReadiness: number;

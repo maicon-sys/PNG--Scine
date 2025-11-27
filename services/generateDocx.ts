@@ -77,8 +77,6 @@ const convertMarkdownToDocx = (markdown: string, assets: ProjectAsset[]): Paragr
                     width: 500,
                     height: 300, // Altura fixa para evitar distorção extrema se não soubermos aspect ratio, ou ajustável
                   },
-                  // Tenta detectar tipo, mas docx geralmente infere ou aceita genericamente
-                  type: "png", 
                 })
               ],
               alignment: AlignmentType.CENTER,

@@ -5,7 +5,7 @@ import {
 } from '../types';
 import { 
   INITIAL_SECTIONS, DEFAULT_STRATEGIC_MATRIX, DEFAULT_METHODOLOGY, 
-  DIAGNOSIS_STEPS 
+  DIAGNOSIS_STEPS, SCINE_CONTEXT 
 } from '../constants';
 import { 
   runDiagnosisStep, generateSectionContent, validateCompletedSections, updateMatrixFromApprovedContent, runTopicValidation, implementCorrections 
@@ -18,6 +18,7 @@ import { LiveDocumentPreview } from '../components/LiveDocumentPreview';
 import { FinancialChart } from '../components/FinancialChart';
 import { SelectApiKeyModal } from '../components/SelectApiKeyModal';
 import { ValidationModal } from '../components/ValidationModal';
+import { DiagnosisDetailModal } from '../components/DiagnosisDetailModal';
 import { 
   LayoutDashboard, FileText, Settings, PlayCircle, 
   CheckCircle, AlertCircle, ChevronRight, Save, ArrowLeft, Loader2, Sparkles, BookOpen, X, Edit, XCircle
@@ -43,6 +44,9 @@ const App: React.FC = () => {
   const [isDiagnosing, setIsDiagnosing] = useState(false);
   const [diagnosisStep, setDiagnosisStep] = useState(0);
   const [diagnosisLogs, setDiagnosisLogs] = useState<string[]>([]);
+  const [isDiagnosisDetailModalOpen, setIsDiagnosisDetailModalOpen] = useState(false);
+  const [selectedDiagnosis, setSelectedDiagnosis] = useState<DiagnosisResponse | null>(null);
+
 
   // API Key State
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -232,7 +236,9 @@ const App: React.FC = () => {
   const getFullContext = ({ maxLength = 50000 }: { maxLength?: number } = {}) => {
     if (!activeProject) return '';
     const { contextState } = activeProject.currentData;
-    let context = `CONTEXTO DO USUÁRIO:\n${contextState.rawContext}\n\n`;
+    
+    let context = `--- INÍCIO DO CONTEXTO DO PROJETO PADRÃO (SCINE) ---\n${SCINE_CONTEXT}\n--- FIM DO CONTEXTO DO PROJETO PADRÃO ---\n\n`;
+    context += `CONTEXTO ADICIONAL DO USUÁRIO (ANOTAÇÕES):\n${contextState.rawContext}\n\n`;
     
     contextState.uploadedFiles.forEach(file => {
       context += `--- ARQUIVO: ${file.name} ---\n${file.content}\n\n`;
@@ -370,16 +376,16 @@ const App: React.FC = () => {
             .map(s => `[SEÇÃO ANTERIOR JÁ ESCRITA: ${s.title}]\n${s.content}`)
             .join('\n\n----------------\n\n');
 
+        // FIX: Corrected the arguments for generateSectionContent to match its definition (10 arguments).
         const newContent = await generateSectionContent(
-            section.title, 
-            section.description, 
-            methodology, 
-            context, 
-            goal, 
-            '', 
-            previousSections, 
-            section.content, 
-            '', '', '', 
+            section.title,
+            section.description,
+            methodology,
+            context,
+            goal,
+            previousSections,
+            section.content,
+            '', // No refinement for initial generation
             matrix,
             assets
         );
@@ -408,18 +414,16 @@ const App: React.FC = () => {
       const assets = activeProject.currentData.contextState.assets;
       const matrix = activeProject.currentData.contextState.strategicMatrix;
 
+      // FIX: Corrected the arguments for generateSectionContent to match its definition (10 arguments).
       const newContent = await generateSectionContent(
         activeSection.title,
         activeSection.description,
         methodology,
         context,
         goal,
-        '', 
-        '', 
+        '', // No previous sections context for refinement
         activeSection.content,
         refinementInput,
-        '',
-        '',
         matrix,
         assets
       );
@@ -624,6 +628,13 @@ const App: React.FC = () => {
   const handleShowPreview = () => {
     handleSaveContent();
     setShowPreview(true);
+  };
+
+  const handleOpenDiagnosisDetails = () => {
+    if (activeProject && activeProject.currentData.diagnosisHistory.length > 0) {
+        setSelectedDiagnosis(activeProject.currentData.diagnosisHistory[activeProject.currentData.diagnosisHistory.length - 1]);
+        setIsDiagnosisDetailModalOpen(true);
+    }
   };
 
   // --- RENDERING ---
@@ -890,11 +901,19 @@ const App: React.FC = () => {
           <div className="bg-white rounded-lg border border-blue-100 shadow-sm overflow-hidden">
              <div className="bg-blue-50 p-3 border-b border-blue-100 flex justify-between items-center">
                <h4 className="font-bold text-blue-900 text-sm">Diagnóstico Global</h4>
-               <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full">
-                 {activeProject.currentData.diagnosisHistory.length > 0 
-                    ? `${activeProject.currentData.diagnosisHistory[activeProject.currentData.diagnosisHistory.length -1].overallReadiness}%` 
-                    : 'Não iniciado'}
-               </span>
+                {activeProject.currentData.diagnosisHistory.length > 0 ? (
+                    <button 
+                        onClick={handleOpenDiagnosisDetails}
+                        className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full font-bold hover:bg-blue-300 transition-colors"
+                        title="Clique para ver detalhes e como melhorar"
+                    >
+                        {`${activeProject.currentData.diagnosisHistory[activeProject.currentData.diagnosisHistory.length - 1].overallReadiness}%`}
+                    </button>
+                ) : (
+                    <span className="text-xs bg-gray-200 text-gray-800 px-2 py-0.5 rounded-full">
+                        Não iniciado
+                    </span>
+                )}
              </div>
              <div className="p-3">
                <p className="text-xs text-gray-600 mb-3">
@@ -943,6 +962,15 @@ const App: React.FC = () => {
 
         </div>
       </div>
+
+      {/* Diagnosis Detail Modal */}
+      {isDiagnosisDetailModalOpen && selectedDiagnosis && (
+        <DiagnosisDetailModal
+            isOpen={isDiagnosisDetailModalOpen}
+            onClose={() => setIsDiagnosisDetailModalOpen(false)}
+            diagnosis={selectedDiagnosis}
+        />
+      )}
 
       {/* Validation Modal */}
       <ValidationModal 

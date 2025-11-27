@@ -1,4 +1,5 @@
 
+
 export interface PaginatedResult {
   pages: string[]; // Array de strings HTML, cada string é o conteúdo de uma página
   tocMap: Record<string, number>; // Mapa de ID -> Número da Página
@@ -43,14 +44,13 @@ export const paginateContent = (
     const marginBottom = parseInt(style.marginBottom) || 0;
     const totalChildHeight = childHeight + marginTop + marginBottom;
 
-    // Verifica se é um cabeçalho para o Sumário
-    const isHeading = ['H1', 'H2', 'H3'].includes(child.tagName);
-    const id = child.getAttribute('id');
-
-    // Regra 1: Capítulos (H1) sempre começam em nova página (exceto se for a primeira linha da página)
-    const isChapterStart = child.tagName === 'H1' || child.classList.contains('chapter-start');
+    // FIX: A lógica foi refinada para procurar o H1 com ID *dentro* do container da seção.
+    // Isso é mais robusto para identificar o início de um capítulo e pegar o ID correto para o sumário.
+    const headingElement = child.querySelector('h1[id]');
+    const id = headingElement ? headingElement.id : null;
+    const isChapterStart = headingElement !== null;
     
-    // Regra 2: Verifica estouro de página
+    // Regra de quebra de página
     if (
       (currentHeight + totalChildHeight > PAGE_CONTENT_HEIGHT) || 
       (isChapterStart && currentHeight > 0)
@@ -59,7 +59,7 @@ export const paginateContent = (
     }
 
     // Registra no mapa do sumário (Página atual + Offset de capas/TOC + 1 base-1)
-    if (id && isHeading) {
+    if (id) {
       tocMap[id] = pages.length + tocOffset + 1;
     }
 
