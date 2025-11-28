@@ -15,6 +15,7 @@ import {
     SectionStatus 
 } from "../types";
 import { DIAGNOSIS_STEPS, DEFAULT_STRATEGIC_MATRIX, VALIDATION_MATRIX } from "../constants";
+import { generationGuidelines } from '../generationGuidelines';
 
 // --- HIGH-FIDELITY INTERNAL AI ENGINE ---
 // This module simulates the Gemini API's behavior with realistic, context-aware responses.
@@ -35,6 +36,7 @@ const extractRelevantChunks = (text: string, keywords: string[], maxCount = 5): 
     // FIX: Split by one or more newlines to handle bullet points and paragraphs.
     const chunks = text.split(/[\r\n]+/).filter(chunk => chunk.trim() !== ''); 
     const relevantChunks: string[] = [];
+    const lowerCaseKeywords = keywords.map(k => k.toLowerCase());
 
     for (const chunk of chunks) {
         if (relevantChunks.length >= maxCount) break;
@@ -46,7 +48,7 @@ const extractRelevantChunks = (text: string, keywords: string[], maxCount = 5): 
         if (trimmedChunk.length < 20 || trimmedChunk.length > 2000) continue; 
 
         // Use a more flexible regex to account for multiple spaces or different word orders in some cases
-        const hasKeyword = keywords.some(keyword => new RegExp(`\\b${keyword.replace(/ /g, '\\s*')}\\b`, 'i').test(trimmedChunk));
+        const hasKeyword = lowerCaseKeywords.some(keyword => new RegExp(`\\b${keyword.replace(/ /g, '\\s*')}\\b`, 'i').test(trimmedChunk));
         
         if (hasKeyword && !relevantChunks.includes(trimmedChunk)) {
             relevantChunks.push(trimmedChunk);
@@ -134,29 +136,51 @@ const generateCanvasBlock = (context: string, type: keyof StrategicMatrix): Canv
 };
 
 
-const generateRealisticSectionText = (title: string, description: string, matrix: StrategicMatrix | null, context: string): string => {
-    
-    // Simulate pulling data from matrix and context to build the text
-    const valueProposition = matrix?.valueProposition?.items[0]?.item || "uma proposta de valor inovadora";
-    const customerSegment = matrix?.customerSegments?.items[0]?.item || "um segmento de clientes bem definido";
-    const relevantContext = extractRelevantChunks(context, ['mercado', 'audiovisual', 'crescimento'], 1)[0] || 'O cenário atual apresenta desafios e oportunidades.';
+// FIX: Lógica de geração de conteúdo completamente refeita.
+// Agora, ela usa as diretrizes do `generationGuidelines.ts` para
+// criar um texto específico e estruturado para cada seção.
+const generateRealisticSectionText = (
+    sectionId: string,
+    description: string,
+    context: string
+): string => {
+    const guidelines = generationGuidelines[sectionId.split('.')[0] + '.' + sectionId.split('.')[1]];
 
-    return `
-### ${title.replace(/^\d+\.\d+\s/, '')}
+    if (!guidelines) {
+        return `### Análise Preliminar\n\n[Diretrizes de geração para a seção ${sectionId} não encontradas. A IA usará uma abordagem genérica.]\n\nConsiderando a diretriz de "${description}", a análise do contexto indica a necessidade de detalhar os seguintes pontos: [...]\n`;
+    }
 
-Considerando a diretriz de *"${description}"*, este tópico detalha a estratégia do projeto SCine, alinhada à matriz de diagnóstico.
+    let content = `### Análise Consolidada\n\nCom base na diretriz de "${description}", este tópico detalha a ${guidelines.title.toLowerCase()} do projeto, alinhada às exigências do SEBRAE e do BRDE.\n\n`;
 
-#### Análise Consolidada
-O projeto SCine se posiciona com **${valueProposition}**, mirando em **${customerSegment}**. A análise do contexto, que indica que "${relevantContext}", reforça a viabilidade desta abordagem. Integramos três frentes de negócio: uma plataforma de streaming (OTT) focada em conteúdo regional, um hub de produção física e uma unidade móvel 4K. Essa estrutura diversifica as fontes de receita entre B2C (assinaturas) e B2B (serviços), mitigando riscos.
+    const generateSection = (title: string, requirements: string[]) => {
+        let sectionContent = `#### ${title}\n\n`;
+        if (requirements.length === 0 || requirements[0] === 'N/A') {
+            sectionContent += "Nenhuma exigência específica do SEBRAE para este tópico, mas a clareza e a completude da informação são recomendadas.\n\n";
+            return sectionContent;
+        }
 
-#### Pontos de Destaque
-- **Mercado Alvo:** O público consumidor de cultura catarinense e empresas que necessitam de produção audiovisual. A estratégia de marketing será direcionada para um ROI otimizado.
-- **Diferencial Competitivo:** A curadoria de conteúdo hiper-regional e a criação de um ecossistema de fomento local são nossas principais barreiras de entrada contra concorrentes globais.
-- **Projeção Financeira:** As projeções indicam um ponto de equilíbrio no 28º mês, com um DSCR (Índice de Cobertura do Serviço da Dívida) robusto, demonstrando capacidade de honrar o financiamento.
+        requirements.forEach(req => {
+            const keywords = guidelines.keywords.concat(req.split(/\s+/).filter(w => w.length > 4));
+            const chunks = extractRelevantChunks(context, keywords, 2);
+            
+            if (chunks.length > 0) {
+                sectionContent += `**${req}**\n\n`;
+                sectionContent += chunks.map(chunk => `- ${chunk}`).join('\n');
+                sectionContent += '\n\n';
+            } else {
+                sectionContent += `**${req}**\n\n`;
+                sectionContent += `[INFORMAÇÃO PENDENTE: A IA não encontrou dados explícitos sobre este requisito no contexto fornecido. É crucial adicionar informações, citando pesquisas, dados internos ou fontes externas para validar este ponto.]\n\n`;
+            }
+        });
+        return sectionContent;
+    };
 
-#### Conclusão da Seção
-A estratégia aqui delineada é sólida e fundamentada. As premissas são realistas e baseadas na análise contextual, atendendo às expectativas de mercado e aos requisitos de instituições como o BRDE.
-`;
+    content += generateSection('Análise Conforme Requisitos SEBRAE', guidelines.sebrae);
+    content += generateSection('Análise Conforme Requisitos BRDE', guidelines.brde);
+
+    content += `### Conclusão da Seção\n\nA análise detalhada, seguindo os critérios estabelecidos, busca fornecer uma visão completa e transparente sobre a ${guidelines.title.toLowerCase()}, mitigando riscos e fortalecendo a tese de investimento do projeto.`;
+
+    return content;
 };
 
 
@@ -294,7 +318,7 @@ export const runDiagnosisStep = async (
 };
 
 export const generateSectionContent = async (
-    sectionTitle: string,
+    sectionId: string,
     sectionDescription: string,
     methodology: string,
     context: string,
@@ -306,7 +330,12 @@ export const generateSectionContent = async (
     assets: ProjectAsset[]
 ): Promise<string> => {
     await wait(1000 + Math.random() * 1000); // Simulate a more complex generation task
-    return generateRealisticSectionText(sectionTitle, sectionDescription, matrix, context);
+    // A lógica de refinamento pode ser mais complexa, mas por enquanto, vamos focar na geração inicial correta.
+    if (refinementInput.trim()) {
+        const refinedText = `${currentContent}\n\n### Refinamento com Base em: "${refinementInput}"\n\nA IA analisou sua instrução e adicionou a seguinte informação para complementar a análise: [... detalhes adicionados aqui...]`;
+        return refinedText;
+    }
+    return generateRealisticSectionText(sectionId, sectionDescription, context);
 };
 
 
@@ -320,103 +349,51 @@ export const runTopicValidation = async (
     await wait(800 + Math.random() * 400);
 
     const corrections: string[] = [];
-    const brdeAnalysis: { name: string; status: 'SIM' | 'NÃO' | 'PARCIAL'; reason: string }[] = [];
-    let matrixDivergences: string[] = [];
-
-    // 1. Check for quantitative data (numbers, currency symbols)
-    if (!/(\d|R\$|%)/.test(topicText)) {
+    
+    // Validação agora verifica se os placeholders de informação pendente existem
+    if (topicText.includes("[INFORMAÇÃO PENDENTE")) {
         corrections.push(
-            '**Quantificar:** Substitua termos vagos como "muitos clientes" por números estimados (ex: "estimamos atingir 5.000 assinantes no primeiro ano...").'
-        );
-        brdeAnalysis.push({ name: 'Indicadores confiáveis', status: 'NÃO', reason: 'Faltam dados numéricos para suportar as afirmações.' });
-    } else {
-        brdeAnalysis.push({ name: 'Indicadores confiáveis', status: 'SIM', reason: 'O texto apresenta dados quantitativos.' });
-    }
-    
-    // 2. Check for structure (Markdown table)
-    if (!/\|.*\|/.test(topicText)) {
-         corrections.push(
-            '**Estruturar:** Use uma tabela Markdown para comparar concorrentes ou apresentar dados. Tabelas aumentam a clareza.'
+            '**Completar Dados:** O texto gerado pela IA contém seções marcadas como "[INFORMAÇÃO PENDENTE]". É crucial que você preencha essas lacunas com dados reais dos seus documentos ou pesquisas para que o plano seja válido.'
         );
     }
 
-    // 3. Check coherence with Matrix (if available)
-    if (matrix && matrix.swot && matrix.swot.weaknesses.items.length > 0 && !matrix.swot.weaknesses.items[0].item.startsWith('Nenhuma')) {
-        const firstWeakness = matrix.swot.weaknesses.items[0];
-        const keywords = firstWeakness.item.split(/\s+/).slice(0, 2); 
-        const foundKeyword = keywords.some(kw => new RegExp(kw, 'i').test(topicText));
-        
-        if (!foundKeyword) {
-            matrixDivergences.push(
-                `O texto não parece abordar a fraqueza identificada na Matriz: **"${firstWeakness.item}"**. O plano deve demonstrar como as fraquezas serão mitigadas.`
-            );
-        }
-    }
-    
-    // 4. General checks for depth
-    if (topicText.length < 400) { 
+    // Checagem de profundidade mínima
+    if (topicText.length < 500) { 
         corrections.push(
-            '**Aprofundar:** O conteúdo está superficial. Expanda a análise com mais detalhes e justificativas para cada ponto.'
+            '**Aprofundar:** O conteúdo parece superficial. Após preencher as informações pendentes, considere expandir a análise com mais detalhes e justificativas para cada ponto.'
         );
-         brdeAnalysis.push({ name: 'Justificativa consistente', status: 'NÃO', reason: 'A argumentação é breve e carece de profundidade.' });
-    } else {
-         brdeAnalysis.push({ name: 'Justificativa consistente', status: 'SIM', reason: 'A argumentação é bem desenvolvida.' });
     }
     
-    brdeAnalysis.push({ name: 'Clareza de escopo', status: 'SIM', reason: 'O escopo do tópico está bem definido.' });
-    brdeAnalysis.push({ name: 'Inovação', status: 'SIM', reason: 'O aspecto de inovação está presente.' });
-    brdeAnalysis.push({ name: 'Acessibilidade', status: 'PARCIAL', reason: 'Acessibilidade é mencionada, mas pode ser mais detalhada.' });
-
-
-    // --- Build the final report ---
-    if (corrections.length === 0 && matrixDivergences.length === 0) {
+    // Se não houver correções, a validação é positiva
+    if (corrections.length === 0) {
         return `
 # VALIDAÇÃO DO TÓPICO: ${topicTitle}
 
 ## 1. Metodologia SEBRAE
 **Status: APROVADO**
-- O conteúdo atende aos requisitos de profundidade, estrutura e quantificação esperados.
+- O conteúdo atende aos requisitos de profundidade, estrutura e responde às diretrizes de entrega esperadas.
 
 ## 2. Requisitos BRDE
 **Status: CONFORME**
-- **Clareza de escopo:** SIM - O escopo está claro e bem definido.
-- **Justificativa consistente:** SIM - As afirmações são bem suportadas por argumentos lógicos e dados.
-- **Indicadores confiáveis:** SIM - O texto apresenta dados quantitativos que sustentam a análise.
-
-## 3. Coerência com a Matriz
-**Status: COERENTE**
-- O texto está alinhado com os insights e dados da Matriz Estratégica do projeto.
+- As informações apresentadas estão alinhadas com os critérios de análise de risco do banco.
 
 ## Conclusão
 O tópico está bem estruturado e validado. Nenhuma correção crítica é necessária.
         `;
     }
 
-    let howToFix = corrections.map((c, i) => `${i + 1}. ${c}`).join('\n');
-    if (matrixDivergences.length > 0) {
-        howToFix += `\n${corrections.length + 1}. **Revisar Coerência:** ${matrixDivergences[0]}`;
-    }
-
     return `
 # VALIDAÇÃO DO TÓPICO: ${topicTitle}
 
-## 1. Metodologia SEBRAE
+## 1. Análise de Completude
 **Correções necessárias:**
-${corrections.length > 0 ? corrections.map(c => `- ${c.replace(/\*\*/g, '')}`).join('\n') : "- Nenhuma correção crítica."}
+${corrections.map(c => `- ${c.replace(/\*\*/g, '')}`).join('\n')}
 
-## 2. Requisitos BRDE
-**Análise:**
-${brdeAnalysis.map(b => `- **${b.name}:** ${b.status} - ${b.reason}`).join('\n')}
+## 2. Como corrigir
+${corrections.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
-## 3. Coerência com a Matriz
-**Divergências encontradas:**
-${matrixDivergences.length > 0 ? matrixDivergences.map(d => `- ${d}`).join('\n') : "- Nenhuma divergência crítica."}
-
-## 4. Problemas de lógica
-- A falta de dados e estrutura enfraquece a argumentação.
-
-## 5. Como corrigir
-${howToFix}
+## Conclusão
+O tópico está incompleto. Por favor, implemente as correções sugeridas para atender aos padrões de qualidade do SEBRAE e BRDE.
     `;
 };
 
@@ -432,39 +409,19 @@ export const implementCorrections = async (
     await wait(1500 + Math.random() * 1000); 
 
     let improvedContent = currentContent;
-    let addedContent = "";
 
-    // Simulate reading the report and generating content for the corrections
-    if (validationReport.includes("Quantificar") || validationReport.includes("Estruturar")) {
-        addedContent += `
-### Análise Quantitativa e Comparativa
-
-Para atender à necessidade de quantificação e estrutura, apresentamos a seguinte análise de mercado e projeções em formato de tabela, conforme as melhores práticas:
-
-| Concorrente | Proposta de Valor | Preço Médio (Plano Padrão) | Foco Regional |
-|-------------|-------------------|----------------------------|---------------|
-| **Netflix** | Conteúdo Global   | R$ 39,90                   | Não           |
-| **Globoplay** | Conteúdo Nacional | R$ 24,90                   | Sim (limitado)|
-| **SCine**   | **Conteúdo Local SC** | **R$ 19,90**               | **Total**     |
-
-**Projeções de Mercado:**
-- **Mercado Alvo (SAM):** O público-alvo em Santa Catarina é estimado em **~1.2 milhões** de espectadores (faixa 25-55 anos, classes B/C).
-- **Meta (SOM):** Nossa meta é atingir **15.000 assinantes (1.25% do SAM)** nos primeiros 24 meses.
-`;
-    }
+    // Simula a IA tentando preencher os placeholders
+    const placeholderRegex = /\[INFORMAÇÃO PENDENTE:.*?\]/g;
     
-    if (validationReport.includes("fraqueza")) {
-        const weaknessMatch = validationReport.match(/\*\*"(.*?)"\*\*/);
-        const weakness = weaknessMatch ? weaknessMatch[1] : "uma fraqueza não especificada";
-        addedContent += `
-### Mitigação de Riscos e Fraquezas
-
-Abordando diretamente a fraqueza **"${weakness}"** identificada na Matriz Estratégica, foi desenvolvido um plano de mitigação. A estratégia consiste em diversificar nossas parcerias de tecnologia, mantendo um fornecedor secundário em stand-by, pronto para ser ativado em caso de falha do provedor principal.
-`;
-    }
-
-    // Combine original content with the new, integrated corrections
-    improvedContent += "\n\n" + addedContent;
+    improvedContent = improvedContent.replace(placeholderRegex, (match) => {
+        // Tenta encontrar um chunk relevante no contexto para substituir o placeholder
+        const keywords = ['dado', 'pesquisa', 'número', 'estatística', 'fonte'];
+        const chunks = extractRelevantChunks(context, keywords, 1);
+        if (chunks.length > 0) {
+            return `**Dado Adicionado pela IA:**\n\n- ${chunks[0]}\n\n*(Nota: Este dado foi extraído automaticamente. Verifique sua precisão e relevância para este tópico.)*`;
+        }
+        return match; // Retorna o mesmo placeholder se nada for encontrado
+    });
 
     return improvedContent.trim();
 };

@@ -125,13 +125,15 @@ const convertMarkdownToDocx = (markdown: string, assets: ProjectAsset[]): (Parag
                 try {
                   const imageBuffer = base64ToUint8Array(asset.data);
                   elements.push(new Paragraph({
-                    children: [new ImageRun({ data: imageBuffer, transformation: { width: 500, height: 281 } })],
+                    // FIX: Changed `data` to `buffer` to match the `docx` library's API for ImageRun.
+                    children: [new ImageRun({ buffer: imageBuffer, transformation: { width: 500, height: 281 } })],
                     alignment: AlignmentType.CENTER,
                     spacing: { after: 240 }
                   }));
                 } catch (e) { 
                   console.error("Erro ao processar imagem para DOCX (possivelmente Base64 inválido):", e); 
-                  elements.push(new Paragraph({ children: [new TextRun({ text: `[Erro ao carregar imagem: ${asset.description}]`, italic: true })] }));
+                  // FIX: Corrected typo from `italic` to `italics`.
+                  elements.push(new Paragraph({ children: [new TextRun({ text: `[Erro ao carregar imagem: ${asset.description}]`, italics: true })] }));
                 }
               }
             }
@@ -175,7 +177,6 @@ export const generateDocx = async (projectName: string, sections: PlanSection[],
       alignment: AlignmentType.CENTER,
       spacing: { before: 800 }
     }),
-    new PageBreak()
   ];
 
   // 2. Sumário Automático
@@ -183,12 +184,13 @@ export const generateDocx = async (projectName: string, sections: PlanSection[],
     new Paragraph({
       children: [new TextRun("Sumário")],
       heading: HeadingLevel.HEADING_1,
+      // FIX: Added pageBreakBefore to start the Table of Contents on a new page.
+      pageBreakBefore: true,
     }),
     new TableOfContents("Sumário", {
       hyperlink: true,
       headingStyleRange: "1-3", // Aumentado para incluir H3
     }),
-    new PageBreak()
   ];
 
   // 3. Conteúdo das Seções
@@ -199,7 +201,8 @@ export const generateDocx = async (projectName: string, sections: PlanSection[],
       new Paragraph({
         children: [new TextRun(section.title)],
         heading: HeadingLevel.HEADING_1,
-        pageBreakBefore: contentElements.length > 0, // Adiciona quebra de página antes de cada nova seção principal
+        // FIX: Replaced `PageBreak` with `pageBreakBefore` to ensure each main section starts on a new page.
+        pageBreakBefore: true,
       })
     );
     const bodyElements = convertMarkdownToDocx(section.content, assets);
@@ -258,6 +261,7 @@ export const generateDocx = async (projectName: string, sections: PlanSection[],
             ],
           }),
         },
+        // FIX: Removed invalid `PageBreak` objects from the children array. Page breaks are now handled by paragraph properties.
         children: [
           ...titlePage,
           ...tableOfContents,
