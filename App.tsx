@@ -23,6 +23,12 @@ import { LiveDocumentPreview } from './components/LiveDocumentPreview';
 const STORAGE_KEY_PROJECTS = 'scine_saas_projects';
 const STORAGE_KEY_USER = 'scine_saas_user';
 
+const hasGeminiKey = () => {
+    const metaEnv = (typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined) || {};
+    const processEnv = (typeof process !== 'undefined' ? (process as any).env : undefined) || {};
+    return Boolean(metaEnv.GEMINI_API_KEY || metaEnv.VITE_API_KEY || processEnv.GEMINI_API_KEY || processEnv.VITE_API_KEY || processEnv.API_KEY);
+};
+
 type ViewState = 'auth' | 'dashboard' | 'editor' | 'preview';
 
 const App: React.FC = () => {
@@ -247,15 +253,17 @@ const App: React.FC = () => {
   const handleRunDiagnosis = async () => {
     setIsDiagnosisLoading(true);
     try {
+        if (!hasGeminiKey()) {
+            alert("Configure a GEMINI_API_KEY ou VITE_API_KEY antes de rodar o diagnóstico.");
+            setIsDiagnosisLoading(false);
+            return;
+        }
         const fullContext = getFullContext();
-        // Run Diagnosis passing previous history to check evolution
-        const [diagResult, matrixResult] = await Promise.all([
-            generateGlobalDiagnosis(fullContext, diagnosisHistory),
-            generateValueMatrix(fullContext)
-        ]);
-
-        setDiagnosisHistory(prev => [...prev, diagResult]);
+        const matrixResult = await generateValueMatrix(fullContext);
         setContextState(prev => ({ ...prev, valueMatrix: matrixResult }));
+
+        const diagResult = await generateGlobalDiagnosis(fullContext, diagnosisHistory);
+        setDiagnosisHistory(prev => [...prev, diagResult]);
 
         // Add suggested sections
         if (diagResult.suggestedSections?.length > 0) {
@@ -281,6 +289,10 @@ const App: React.FC = () => {
   // ... (handleGenerateSection, handleGenerateImage, etc. same as before) ...
   const handleGenerateSection = async (skipAnalysis = false, isContinuation = false, isRefinement = false) => {
       if (!activeSection) return;
+      if (!hasGeminiKey()) {
+          alert("Configure a GEMINI_API_KEY ou VITE_API_KEY antes de gerar conteúdo.");
+          return;
+      }
       const isSynthesis = isIntroSection(activeSection) || isConclusionSection(activeSection);
 
       if (!skipAnalysis && activeSection.status === SectionStatus.PENDING && !isContinuation && !isRefinement && !isSynthesis) {
@@ -414,7 +426,7 @@ const App: React.FC = () => {
 
                        <div className="space-y-4">
                            <h3 className="text-sm font-bold text-gray-700 border-b pb-2">Status das Pendências (Gaps)</h3>
-                           {latestDiagnosis.gaps.map(gap => (
+                           {latestDiagnosis?.gaps?.map(gap => (
                                <div key={gap.id} className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-white border border-gray-100 rounded-lg hover:shadow-sm transition-shadow">
                                    <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${gap.status === 'RESOLVED' ? 'bg-green-100 text-green-600' : (gap.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-600' : 'bg-red-100 text-red-600')}`}>
                                        {gap.status === 'RESOLVED' ? <Check className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
@@ -431,7 +443,7 @@ const App: React.FC = () => {
                                    </div>
                                </div>
                            ))}
-                           {latestDiagnosis.gaps.length === 0 && <p className="text-sm text-gray-500 italic">Nenhuma pendência crítica identificada.</p>}
+                           {latestDiagnosis?.gaps?.length === 0 && <p className="text-sm text-gray-500 italic">Nenhuma pendência crítica identificada.</p>}
                        </div>
                    </div>
                 )}
