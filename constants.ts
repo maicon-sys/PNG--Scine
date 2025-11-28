@@ -260,7 +260,9 @@ export const INITIAL_SECTIONS: PlanSection[] = [
 
   // --- CAPÍTULO 4: PLANO DE MARKETING ---
   { id: '4.0', chapter: '4. PLANO DE MARKETING', title: '4.0 Introdução ao Plano de Marketing', description: 'Escreva um parágrafo de abertura para o capítulo de Marketing.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
-  { id: '4.1', chapter: '4. PLANO DE MARKETING', title: '4.1 Estratégia de Aquisição e Métricas', description: 'Detalhe a estratégia de aquisição (4Ps, Posicionamento) e as projeções de CAC, LTV e ARPU.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '4.1', chapter: '4. PLANO DE MARKETING', title: '4.1 Estratégia de Posicionamento e Canais', description: 'Defina os 4Ps (Produto, Preço, Praça, Promoção), o posicionamento da marca e os canais de comunicação a serem utilizados.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '4.2', chapter: '4. PLANO DE MARKETING', title: '4.2 Estratégia de Aquisição e Métricas Financeiras', description: 'Detalhe a estratégia de aquisição de clientes e apresente as projeções de CAC, LTV e ARPU, provando a viabilidade no OPEX.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
+  { id: '4.3', chapter: '4. PLANO DE MARKETING', title: '4.3 Metas e Cronograma de Marketing', description: 'Apresente as metas de marketing trimestrais e o cronograma de execução, garantindo coerência com o plano financeiro.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },
 
   // --- CAPÍTULO 5: PLANO OPERACIONAL ---
   { id: '5.0', chapter: '5. PLANO OPERACIONAL', title: '5.0 Introdução ao Plano Operacional', description: 'Escreva um parágrafo de abertura para o capítulo de Operações.', content: '', status: SectionStatus.PENDING, type: SectionType.TEXT },

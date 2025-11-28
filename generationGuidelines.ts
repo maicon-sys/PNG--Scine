@@ -175,43 +175,61 @@ export const generationGuidelines: Record<string, SectionGuideline> = {
     ],
     keywords: ['síntese', 'conclusão', 'veredito', 'viabilidade de mercado', 'resumo do mercado']
   },
-  // Placeholder para os próximos capítulos (a serem detalhados)
+  // --- TÓPICO 3: PRODUTO/SERVIÇO ---
   '3.1': {
     title: 'Produto/Serviço',
     sebrae: ['Descrição clara do produto', 'Benefícios', 'Diferenciais', 'Portfólio de serviços', 'Como funciona'],
     brde: ['Prova técnica de que o produto pode ser entregue', 'Pipeline operacional documentado', 'Padrões de qualidade', 'Acessibilidade (AD, Libras, CC) como processo', 'Conexão entre produto → equipe → custos', 'Roadmap de evolução técnica'],
     keywords: ['produto', 'serviço', 'plataforma', 'ott', 'hub', 'van 4k', 'funcionalidades', 'pipeline', 'roadmap']
   },
+  // --- TÓPICO 4: PLANO DE MARKETING ---
   '4.1': {
-      title: 'Plano de Marketing',
-      sebrae: ['4 Ps', 'Estratégia de aquisição', 'Segmentação', 'Posicionamento', 'Canais de comunicação'],
-      brde: ['CAC projetado', 'LTV e ARPU projetados', 'Metas trimestrais', 'Cronograma de execução', 'Prova de que o CAC cabe no OPEX', 'Projeção de vendas coerente com finanças'],
-      keywords: ['marketing', 'aquisição', 'cac', 'ltv', 'arpu', 'funil', 'canais', 'posicionamento']
+    title: 'Estratégia de Posicionamento e Canais',
+    sebrae: ['Definição dos 4 Ps (Produto, Preço, Praça, Promoção).', 'Estratégia de posicionamento da marca no mercado.', 'Descrição dos canais de comunicação e distribuição.'],
+    brde: ['Coerência do preço com a capacidade de pagamento do público-alvo (verificado na Análise de Mercado).'],
+    keywords: ['marketing', '4p', 'produto', 'preço', 'praça', 'promoção', 'posicionamento', 'marca', 'canais', 'comunicação', 'distribuição']
   },
+  '4.2': {
+    title: 'Estratégia de Aquisição e Métricas Financeiras',
+    sebrae: ['Descrição clara da estratégia de aquisição de clientes.', 'Funil de aquisição por fase (atração, conversão, retenção).'],
+    brde: ['Cálculo e projeção do Custo de Aquisição de Cliente (CAC).', 'Cálculo e projeção do Lifetime Value (LTV) e Receita Média por Usuário (ARPU).', 'Prova de que o CAC projetado é sustentável dentro do OPEX (orçamento operacional).'],
+    keywords: ['aquisição', 'clientes', 'funil', 'cac', 'ltv', 'arpu', 'métricas', 'opex', 'custo', 'lifetime value']
+  },
+  '4.3': {
+    title: 'Metas e Cronograma de Marketing',
+    sebrae: ['Estabelecimento de metas claras de marketing.'],
+    brde: ['Metas de aquisição de assinantes divididas trimestralmente.', 'Cronograma tático de execução das campanhas e ações de marketing.', 'Prova de que a projeção de vendas/assinantes é coerente com o plano financeiro (DRE).'],
+    keywords: ['metas', 'kpi', 'cronograma', 'trimestral', 'execução', 'campanhas', 'projeção de vendas', 'dre']
+  },
+  // --- TÓPICO 5: PLANO OPERACIONAL ---
   '5.1': {
       title: 'Plano Operacional',
       sebrae: ['Como a empresa funciona no dia a dia', 'Quais processos operacionais existem', 'Que recursos são necessários'],
       brde: ['Processo estrutural completo (pipeline)', 'Prova de capacidade operacional', 'Estimativas de produtividade editorial', 'Conexão entre operação e orçamento', 'Acessibilidade integrada', 'Critérios de qualidade e performance'],
       keywords: ['operação', 'processos', 'pipeline', 'fluxo', 'capacidade', 'sla']
   },
+  // --- TÓPICO 6: EQUIPE / GOVERNANÇA ---
   '6.1': {
       title: 'Equipe / Governança',
       sebrae: ['Quem faz parte', 'Funções básicas', 'Responsabilidades'],
       brde: ['Equipe mínima garantida', 'Três níveis de governança', 'Divisão entre SCine / 4Movie / Labd12', 'Justificativa de custo da equipe', 'Organograma completo'],
       keywords: ['equipe', 'time', 'governança', 'organograma', 'sócios', 'funções']
   },
+  // --- TÓPICO 7: JURÍDICO ---
   '7.1': {
       title: 'Jurídico',
       sebrae: ['Enquadramento legal', 'Estrutura societária'],
       brde: ['Garantias', 'Política de privacidade', 'Aderência à ANCINE', 'Riscos jurídicos identificados', 'Modelos contratuais básicos'],
       keywords: ['jurídico', 'legal', 'societário', 'contratos', 'ancine', 'lgpd', 'riscos']
   },
+  // --- TÓPICO 8: FINANCEIRO ---
   '8.1': {
       title: 'Financeiro',
       sebrae: ['DRE 3–5 anos', 'Fluxo de caixa', 'Ponto de equilíbrio'],
       brde: ['DRE 5 anos', 'Fluxo de caixa mensal', 'Matriz CAPEX detalhada', 'Matriz OPEX detalhada', 'DSCR', 'RSD', 'Análise de sensibilidade', 'Garantias', 'Cronograma físico-financeiro'],
       keywords: ['financeiro', 'dre', 'fluxo de caixa', 'capex', 'opex', 'dscr', 'sensibilidade', 'projeções']
   },
+  // --- TÓPICO 9: GATILHOS E COVENANTS ---
   '9.1': {
       title: 'Gatilhos e Covenants',
       sebrae: ['N/A'],
