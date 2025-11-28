@@ -144,23 +144,43 @@ const generateRealisticSectionText = (
     description: string,
     context: string
 ): string => {
-    const guidelines = generationGuidelines[sectionId.split('.')[0] + '.' + sectionId.split('.')[1]];
+    // Acessa a diretriz pela chave completa, ex: "2.0", "2.1", etc.
+    const guidelines = generationGuidelines[sectionId];
 
     if (!guidelines) {
         return `### Análise Preliminar\n\n[Diretrizes de geração para a seção ${sectionId} não encontradas. A IA usará uma abordagem genérica.]\n\nConsiderando a diretriz de "${description}", a análise do contexto indica a necessidade de detalhar os seguintes pontos: [...]\n`;
     }
 
+    // FEATURE: Lógica especial para roteiros de alta fidelidade
+    if (guidelines.fullPrompt) {
+        const promptKeywords = ['demanda', 'risco', 'projeções', 'cliente', 'concorrência', 'tendências', 'mercado', 'financeiro', 'sebrae', 'brde'];
+        const chunks = extractRelevantChunks(context, promptKeywords, 5);
+
+        let content = `### Análise Consolidada - ${guidelines.title}\n\n`;
+        content += `A Análise de Mercado é um componente crítico deste plano de negócios, servindo para validar a demanda, reduzir a percepção de risco para financiadores como o BRDE, e fornecer uma base sólida para as projeções financeiras e decisões estratégicas.\n\n`;
+        content += `Nos capítulos seguintes, serão analisadas em detalhe as dimensões essenciais do mercado, incluindo a segmentação e o perfil dos clientes (2.1, 2.2), as necessidades e oportunidades (2.3), a quantificação do mercado potencial (2.5), a análise da concorrência (2.6) e as tendências e riscos setoriais (2.7-2.11).\n\n`;
+        
+        if (chunks.length > 0) {
+            content += `Esta análise foi construída com base em pesquisas primárias realizadas com o público-alvo, estudos de mercado secundários e análises internas estratégicas. As conclusões aqui apresentadas fornecem o embasamento para o Plano de Marketing e são diretamente conectadas às projeções de assinantes e receita do Plano Financeiro.\n\n`;
+        } else {
+             content += `[INFORMAÇÃO PENDENTE: Embora a estrutura da análise esteja definida, a IA não encontrou dados de suporte suficientes no contexto (pesquisas, análises de mercado) para aprofundar esta introdução. É crucial adicionar estes documentos para validar as premissas.]\n`;
+        }
+        return content;
+    }
+
+    // Lógica padrão para diretrizes estruturadas
     let content = `### Análise Consolidada\n\nCom base na diretriz de "${description}", este tópico detalha a ${guidelines.title.toLowerCase()} do projeto, alinhada às exigências do SEBRAE e do BRDE.\n\n`;
 
-    const generateSection = (title: string, requirements: string[]) => {
+    const generateSection = (title: string, requirements: string[] | undefined) => {
+        if (!requirements) return '';
         let sectionContent = `#### ${title}\n\n`;
         if (requirements.length === 0 || requirements[0] === 'N/A') {
-            sectionContent += "Nenhuma exigência específica do SEBRAE para este tópico, mas a clareza e a completude da informação são recomendadas.\n\n";
+            sectionContent += "Nenhuma exigência específica para este tópico, mas a clareza e a completude da informação são recomendadas.\n\n";
             return sectionContent;
         }
 
         requirements.forEach(req => {
-            const keywords = guidelines.keywords.concat(req.split(/\s+/).filter(w => w.length > 4));
+            const keywords = (guidelines.keywords || []).concat(req.split(/\s+/).filter(w => w.length > 4));
             const chunks = extractRelevantChunks(context, keywords, 2);
             
             if (chunks.length > 0) {
