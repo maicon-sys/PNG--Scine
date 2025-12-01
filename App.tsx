@@ -51,6 +51,7 @@ const App: React.FC = () => {
   // diagnosisHistory replaces single diagnosis
   const [diagnosisHistory, setDiagnosisHistory] = useState<DiagnosisResponse[]>([]); 
   const [isDiagnosisLoading, setIsDiagnosisLoading] = useState(false);
+  const [isMatrixLoading, setIsMatrixLoading] = useState(false);
   
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState('');
@@ -241,6 +242,11 @@ const App: React.FC = () => {
       return financialSection ? financialSection.status === SectionStatus.COMPLETED : false;
   }, [sections]);
 
+  const isMatrixValid = useMemo(() => {
+      const entries = contextState.valueMatrix?.entries;
+      return Array.isArray(entries) && entries.length > 0;
+  }, [contextState.valueMatrix]);
+
   const getFullContext = () => {
     return `OBJETIVO: ${contextState.businessGoal}
     METODOLOGIA: ${contextState.methodology}
@@ -250,7 +256,30 @@ const App: React.FC = () => {
 
   const activeSection = sections.find(s => s.id === activeSectionId);
 
+  const handleGenerateMatrix = async () => {
+    if (!hasGeminiKey()) {
+        alert("Configure a GEMINI_API_KEY ou VITE_API_KEY antes de consolidar a matriz.");
+        return;
+    }
+
+    setIsMatrixLoading(true);
+    try {
+        const fullContext = getFullContext();
+        const matrixResult = await generateValueMatrix(fullContext);
+        setContextState(prev => ({ ...prev, valueMatrix: matrixResult }));
+    } catch (e) {
+        alert("Erro ao consolidar a matriz.");
+        console.error(e);
+    }
+    setIsMatrixLoading(false);
+  };
+
   const handleRunDiagnosis = async () => {
+    if (!isMatrixValid) {
+        alert("A matriz ainda não foi consolidada. Gere ou importe uma matriz válida.");
+        return;
+    }
+
     setIsDiagnosisLoading(true);
     try {
         if (!hasGeminiKey()) {
@@ -259,9 +288,6 @@ const App: React.FC = () => {
             return;
         }
         const fullContext = getFullContext();
-        const matrixResult = await generateValueMatrix(fullContext);
-        setContextState(prev => ({ ...prev, valueMatrix: matrixResult }));
-
         const diagResult = await generateGlobalDiagnosis(fullContext, diagnosisHistory);
         setDiagnosisHistory(prev => [...prev, diagResult]);
 
@@ -370,7 +396,7 @@ const App: React.FC = () => {
 
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           <button onClick={() => setActiveSectionId('context')} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors mb-4 ${activeSectionId === 'context' ? 'bg-orange-600 text-white shadow-lg' : 'text-orange-100 hover:bg-orange-800'}`}><FileText className="w-4 h-4" /> Central de Arquivos</button>
-          {contextState.valueMatrix && (
+          {isMatrixValid && (
               <button onClick={() => setActiveSectionId('matrix')} className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors mb-4 ${activeSectionId === 'matrix' ? 'bg-orange-600 text-white shadow-lg' : 'text-orange-100 hover:bg-orange-800'}`}><TableProperties className="w-4 h-4" /> 0. MATRIZ DE DADOS</button>
           )}
           {Object.entries(sectionsByChapter).map(([chapter, val]) => {
@@ -406,12 +432,30 @@ const App: React.FC = () => {
                 <p className="text-gray-500 mt-2 text-sm max-w-3xl">{activeSectionId === 'context' ? 'Faça o upload e rode o diagnóstico evolutivo.' : activeSection?.description}</p>
              </div>
              {activeSectionId === 'context' && (
-                 <button onClick={handleRunDiagnosis} disabled={isDiagnosisLoading} className="flex items-center gap-2 px-5 py-3 text-sm font-bold bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-white shadow-md">{isDiagnosisLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Stethoscope className="w-4 h-4" />} {diagnosisHistory.length > 0 ? 'Atualizar Diagnóstico' : 'Iniciar Diagnóstico'}</button>
+                 <div className="flex flex-col sm:flex-row gap-3">
+                    <button onClick={handleGenerateMatrix} disabled={isMatrixLoading} className="flex items-center justify-center gap-2 px-5 py-3 text-sm font-bold bg-gray-800 rounded-lg hover:bg-gray-900 transition-colors text-white shadow-md disabled:opacity-70 disabled:cursor-not-allowed">
+                        {isMatrixLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <TableProperties className="w-4 h-4" />} Consolidar Matriz
+                    </button>
+                    <button onClick={handleRunDiagnosis} disabled={isDiagnosisLoading || !isMatrixValid} className="flex items-center gap-2 px-5 py-3 text-sm font-bold bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-white shadow-md disabled:opacity-70 disabled:cursor-not-allowed">
+                        {isDiagnosisLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Stethoscope className="w-4 h-4" />} {diagnosisHistory.length > 0 ? 'Atualizar Diagnóstico' : 'Iniciar Diagnóstico'}
+                    </button>
+                 </div>
              )}
           </header>
 
           {activeSectionId === 'context' && (
              <div className="space-y-8">
+                {!isMatrixValid && (
+                   <div className="bg-yellow-50 border border-yellow-200 text-yellow-900 rounded-xl p-4 flex gap-3 items-start">
+                      <div className="mt-0.5">
+                        <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold">A matriz ainda não foi consolidada. Gere ou importe uma matriz válida.</p>
+                        <p className="text-xs text-yellow-800">Use o botão "Consolidar Matriz" para processar o Canvas + SWOT antes de executar o diagnóstico global.</p>
+                      </div>
+                   </div>
+                )}
                 {latestDiagnosis && (
                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-in fade-in slide-in-from-bottom-4">
                        <div className="flex items-center justify-between mb-4">
@@ -451,7 +495,7 @@ const App: React.FC = () => {
              </div>
           )}
 
-          {activeSectionId === 'matrix' && contextState.valueMatrix && <ValueMatrixViewer matrix={contextState.valueMatrix} />}
+          {activeSectionId === 'matrix' && isMatrixValid && contextState.valueMatrix && <ValueMatrixViewer matrix={contextState.valueMatrix} />}
 
           {activeSection && activeSectionId !== 'context' && activeSectionId !== 'matrix' && (
             <div className="space-y-6">
