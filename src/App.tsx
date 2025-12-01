@@ -30,8 +30,76 @@ import remarkGfm from 'remark-gfm';
 // FIX: Adiciona chaves de armazenamento para persistência de dados.
 const STORAGE_KEY_USER = 'strategia-ai-user';
 const STORAGE_KEY_PROJECTS = 'strategia-ai-projects';
+const MATRIX_PLACEHOLDER_TEXT = 'Matriz não gerada';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const sanitizeFileContent = (content: string): string => {
+  if (!content) return '';
+  return content
+    .replace(/---\s*ARQUIVO[^-]*---/gi, '--- CONTEÚDO DE ARQUIVO ---')
+    .replace(/Arquivo\s+[^:\n]+:/gi, 'Documento:')
+    .replace(/\b[A-Za-z0-9_-]+\.pdf\b/gi, '[documento]')
+    .replace(/\b[A-Za-z0-9_-]+\.docx\b/gi, '[documento]')
+    .replace(/\b[A-Za-z0-9_-]+\.xlsx\b/gi, '[planilha]')
+    .trim();
+};
+
+const isMatrixReadyForUse = (matrix: StrategicMatrix | null | undefined): { isReady: boolean; reason?: string } => {
+  if (!matrix) {
+    return { isReady: false, reason: 'Gere a Matriz de Valores (Etapa 0) antes de rodar o diagnóstico ou gerar conteúdo.' };
+  }
+
+  if (typeof (matrix as unknown) === 'string' && `${matrix}`.toLowerCase().includes(MATRIX_PLACEHOLDER_TEXT.toLowerCase())) {
+    return { isReady: false, reason: 'A matriz está marcada como “Matriz não gerada”. Conclua a geração antes de continuar.' };
+  }
+
+  const requiredKeys: (keyof StrategicMatrix)[] = [
+    'customerSegments',
+    'valueProposition',
+    'channels',
+    'customerRelationships',
+    'revenueStreams',
+    'keyResources',
+    'keyActivities',
+    'keyPartnerships',
+    'costStructure',
+    'swot',
+    'generatedAt'
+  ];
+
+  const hasAllKeys = requiredKeys.every(key => (matrix as any)[key] !== undefined && (matrix as any)[key] !== null);
+  if (!hasAllKeys) {
+    return { isReady: false, reason: 'A matriz parece incompleta. Verifique se todos os blocos Canvas/SWOT foram preenchidos.' };
+  }
+
+  if ((matrix.generatedAt ?? 0) === 0) {
+    return { isReady: false, reason: 'A matriz ainda não foi consolidada. Gere ou importe uma matriz válida.' };
+  }
+
+  const blocks = [
+    matrix.customerSegments,
+    matrix.valueProposition,
+    matrix.channels,
+    matrix.customerRelationships,
+    matrix.revenueStreams,
+    matrix.keyResources,
+    matrix.keyActivities,
+    matrix.keyPartnerships,
+    matrix.costStructure,
+    matrix.swot.strengths,
+    matrix.swot.weaknesses,
+    matrix.swot.opportunities,
+    matrix.swot.threats,
+  ];
+
+  const hasAnyItem = blocks.some(block => Array.isArray(block.items) && block.items.length > 0);
+  if (!hasAnyItem) {
+    return { isReady: false, reason: 'A matriz está vazia. Preencha os itens-chave antes de envolver a IA com números.' };
+  }
+
+  return { isReady: true };
+};
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -74,6 +142,9 @@ const App: React.FC = () => {
   // Computed Active Project
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
   const activeSection = activeProject?.currentData.sections.find(s => s.id === selectedSectionId);
+  const matrixStatus = activeProject
+    ? isMatrixReadyForUse(activeProject.currentData.contextState.strategicMatrix)
+    : { isReady: false, reason: 'Selecione um projeto para continuar.' };
 
   // --- DATA PERSISTENCE ---
   useEffect(() => {
@@ -313,7 +384,8 @@ const App: React.FC = () => {
     context += `CONTEXTO ADICIONAL DO USUÁRIO (ANOTAÇÕES):\n${contextState.rawContext}\n\n`;
     
     contextState.uploadedFiles.forEach(file => {
-      context += `--- ARQUIVO: ${file.name} ---\n${file.content}\n\n`;
+      const sanitizedContent = sanitizeFileContent(file.content);
+      context += `--- ARQUIVO ANEXADO ---\n${sanitizedContent}\n\n`;
     });
 
     if (context.length <= maxLength) {
@@ -359,9 +431,17 @@ const App: React.FC = () => {
 
   const handleRunDiagnosis = async () => {
     if (!activeProject) return;
+
+    const matrixStatus = isMatrixReadyForUse(activeProject.currentData.contextState.strategicMatrix);
+    if (!matrixStatus.isReady) {
+      const warning = matrixStatus.reason || 'Gere a Matriz de Valores (Etapa 0) antes de rodar o diagnóstico.';
+      setDiagnosisLogs([warning]);
+      alert(warning);
+      return;
+    }
     
     setIsDiagnosing(true);
-    setDiagnosisLogs([]);
+    setDiagnosisLogs(["Matriz validada. A IA usará apenas os números registrados na Matriz de Valores."]);
     setDiagnosisStep(0);
 
     const context = getFullContext();
@@ -427,8 +507,9 @@ const App: React.FC = () => {
       if (!activeProject) return;
 
       const matrix = activeProject.currentData.contextState.strategicMatrix;
-      if (!matrix || matrix.generatedAt === 0) {
-        alert("Por favor, execute o Diagnóstico Global primeiro para gerar a Matriz Estratégica, que é necessária para embasar o conteúdo das seções.");
+      const matrixStatus = isMatrixReadyForUse(matrix);
+      if (!matrixStatus.isReady) {
+        alert(matrixStatus.reason || "Gere a Matriz de Valores (Etapa 0) antes de gerar seções com IA.");
         return;
       }
 
@@ -475,6 +556,12 @@ const App: React.FC = () => {
 
   const handleRefineSection = async () => {
     if (!activeProject || !activeSection || !refinementInput.trim()) return;
+
+    const matrixStatus = isMatrixReadyForUse(activeProject.currentData.contextState.strategicMatrix);
+    if (!matrixStatus.isReady) {
+      alert(matrixStatus.reason || "Gere a Matriz de Valores (Etapa 0) antes de refinar seções com IA.");
+      return;
+    }
 
     setIsGenerating(true);
     updateSection(activeSection.id, { status: SectionStatus.GENERATING });
@@ -542,6 +629,11 @@ const App: React.FC = () => {
 
   const handleValidateCurrentSection = async () => {
     if (!activeProject || !activeSection) return;
+    const matrixStatus = isMatrixReadyForUse(activeProject.currentData.contextState.strategicMatrix);
+    if (!matrixStatus.isReady) {
+      alert(matrixStatus.reason || 'Gere a Matriz de Valores (Etapa 0) antes de validar seções com IA.');
+      return;
+    }
     
     // 1. Salva o conteúdo atual antes de validar
     handleSaveContent(false);
@@ -584,7 +676,13 @@ const App: React.FC = () => {
 
   const handleImplementCorrections = async () => {
       if (!activeProject || !activeSection || !validationReport) return;
-      
+
+      const matrixStatus = isMatrixReadyForUse(activeProject.currentData.contextState.strategicMatrix);
+      if (!matrixStatus.isReady) {
+          alert(matrixStatus.reason || 'Gere a Matriz de Valores (Etapa 0) antes de aplicar correções automáticas.');
+          return;
+      }
+
       setIsCorrecting(true);
 
       try {
@@ -714,6 +812,12 @@ const App: React.FC = () => {
   const handleReevaluateGap = async (gapId: string, userText: string, files: File[]) => {
       if (!activeProject) return;
 
+      const matrixStatus = isMatrixReadyForUse(activeProject.currentData.contextState.strategicMatrix);
+      if (!matrixStatus.isReady) {
+          alert(matrixStatus.reason || 'Gere a Matriz de Valores (Etapa 0) antes de reavaliar pendências com IA.');
+          return;
+      }
+
       const latestDiagnosis = activeProject.currentData.diagnosisHistory[activeProject.currentData.diagnosisHistory.length - 1];
       const originalGap = latestDiagnosis?.gaps.find(g => g.id === gapId);
 
@@ -727,7 +831,7 @@ const App: React.FC = () => {
       for (const file of files) {
           try {
               const content = await file.text();
-              newFilesContent.push(`--- ARQUIVO ANEXADO: ${file.name} ---\n${content}`);
+              newFilesContent.push(`--- ARQUIVO ANEXADO ---\n${sanitizeFileContent(content)}`);
           } catch(e) {
               console.error(`Não foi possível ler o arquivo ${file.name}`, e);
           }
@@ -909,10 +1013,10 @@ const App: React.FC = () => {
              ) : (
                <button 
                 onClick={() => activeSection && handleGenerateSection(activeSection)}
-                disabled={!activeSection || isGenerating || isValidating}
+                disabled={!activeSection || isGenerating || isValidating || !matrixStatus.isReady}
                 className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium shadow-sm transition-all disabled:bg-blue-300 disabled:cursor-not-allowed"
                >
-                 <Sparkles className="w-4 h-4" /> 
+                 <Sparkles className="w-4 h-4" />
                  {activeSection?.content ? 'Regerar do Zero' : 'Gerar com IA'}
                </button>
              )}
@@ -953,9 +1057,9 @@ const App: React.FC = () => {
                     Editar Texto
                 </button>
              )}
-             <button 
+                <button 
                 onClick={handleValidateCurrentSection}
-                disabled={!activeSection || !activeSection.content || isValidating || isGenerating || isEditing}
+                disabled={!activeSection || !activeSection.content || isValidating || isGenerating || isEditing || !matrixStatus.isReady}
                 className="flex items-center gap-2 text-gray-600 hover:text-gray-900 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 title={isEditing ? "Salve ou cancele a edição para validar" : "A IA irá auditar este texto, verificando a coerência com a metodologia (SEBRAE/BRDE), os dados do diagnóstico e os objetivos do projeto. O resultado será exibido como um feedback."}
              >
@@ -1024,13 +1128,13 @@ const App: React.FC = () => {
                        value={refinementInput}
                        onChange={(e) => setRefinementInput(e.target.value)}
                        onKeyDown={(e) => e.key === 'Enter' && handleRefineSection()}
-                       disabled={isGenerating || isValidating}
+                       disabled={isGenerating || isValidating || !matrixStatus.isReady}
                        className="flex-grow w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-shadow"
                        placeholder="Peça para a IA refinar este texto..."
                      />
-                     <button
-                       onClick={handleRefineSection}
-                       disabled={isGenerating || isValidating || !refinementInput.trim()}
+                       <button
+                         onClick={handleRefineSection}
+                       disabled={isGenerating || isValidating || !refinementInput.trim() || !matrixStatus.isReady}
                        className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium shadow-sm transition-all disabled:bg-purple-300 disabled:cursor-not-allowed"
                        title="Refinar com base na instrução"
                      >
@@ -1114,9 +1218,9 @@ const App: React.FC = () => {
                  A IA analisará todos os arquivos e construirá a Matriz Estratégica (Canvas + SWOT).
                </p>
                
-               {isDiagnosing ? (
-                 <div className="space-y-2">
-                   <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+              {isDiagnosing ? (
+                <div className="space-y-2">
+                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                      <div 
                         className="h-full bg-blue-600 transition-all duration-500"
                         style={{ width: `${(diagnosisStep / 10) * 100}%` }}
@@ -1125,16 +1229,22 @@ const App: React.FC = () => {
                    <div className="text-xs text-gray-500 h-20 overflow-y-auto font-mono bg-gray-50 p-2 rounded border">
                      {diagnosisLogs.map((log, i) => <div key={i}>{log}</div>)}
                    </div>
-                 </div>
-               ) : (
-                 <button 
-                   onClick={handleRunDiagnosis}
-                   className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors flex justify-center items-center gap-2"
+                </div>
+              ) : (
+                <button 
+                  onClick={handleRunDiagnosis}
+                  disabled={!matrixStatus.isReady || isDiagnosing}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors flex justify-center items-center gap-2 disabled:bg-blue-300 disabled:cursor-not-allowed"
                  >
                    <PlayCircle className="w-4 h-4" /> Executar Diagnóstico
-                 </button>
-               )}
-             </div>
+                </button>
+                {!matrixStatus.isReady && (
+                  <p className="text-xs text-red-600 mt-2">
+                    {matrixStatus.reason || 'Gere a Matriz de Valores (Etapa 0) para liberar esta ação.'}
+                  </p>
+                )}
+              )}
+            </div>
           </div>
 
           {/* Strategic Matrix Viewer */}

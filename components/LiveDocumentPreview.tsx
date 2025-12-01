@@ -44,6 +44,30 @@ const PAGE_FOOTER_STYLE: React.CSSProperties = {
 };
 
 
+const sanitizeForExternalDoc = (text: string): string => {
+  if (!text) return '';
+
+  const fileExtensions = '(pdf|docx?|xlsx?|xls|csv|pptx?|ppt|zip)';
+  let sanitized = text;
+
+  const markdownLinkFileRegex = new RegExp(`\\[[^\\]]*\\]\\([^\\s)]+\\.(${fileExtensions})(?:[^)]*)\\)`, 'gi');
+  const quotedFileRegex = new RegExp(`["'“”‘’][^"'“”‘’\n\r]+\\.(${fileExtensions})["'“”‘’]`, 'gi');
+  const explicitFileCalloutRegex = new RegExp(`(?:arquivo|planilha|tabela|documento)\\s*:??\\s*[^\n\r]*?\\.(${fileExtensions})`, 'gi');
+  const numberedDocumentRegex = new RegExp(`(?:\\d+️⃣\\s*)?Documento\\s*\\d+\\s*[—–-]\\s*[^\n\r]*?\\.(${fileExtensions})`, 'gi');
+  const standaloneFileRegex = new RegExp(`\\b[\\wÀ-ÿ0-9_()\-–—.,\s]+\\.(${fileExtensions})\\b`, 'gi');
+  const matrixRegex = /\b(?:Matriz de Valores|Value\s*Matrix)\b/gi;
+
+  sanitized = sanitized.replace(markdownLinkFileRegex, 'documento técnico interno');
+  sanitized = sanitized.replace(quotedFileRegex, 'documento técnico interno');
+  sanitized = sanitized.replace(explicitFileCalloutRegex, 'documento técnico interno');
+  sanitized = sanitized.replace(numberedDocumentRegex, 'documento técnico interno');
+  sanitized = sanitized.replace(standaloneFileRegex, 'documento técnico interno');
+  sanitized = sanitized.replace(matrixRegex, 'documento técnico interno');
+
+  return sanitized;
+};
+
+
 export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projectName, sections, assets, onClose }) => {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -55,6 +79,14 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
 
   const sortedSections = sections
     .filter(s => s.content && s.content.trim() !== '');
+
+  const sanitizedSections = sortedSections.map(section => ({
+    ...section,
+    title: sanitizeForExternalDoc(section.title || ''),
+    content: sanitizeForExternalDoc(section.content || ''),
+  }));
+
+  const sanitizedProjectName = sanitizeForExternalDoc(projectName);
 
   useEffect(() => {
     setIsCalculating(true);
@@ -72,7 +104,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
   const handleExportDocx = async () => {
     try {
       setIsExportingDocx(true);
-      const blob = await generateDocx(projectName, sortedSections, assets);
+      const blob = await generateDocx(sanitizedProjectName || projectName, sanitizedSections, assets);
       
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -182,7 +214,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
         className="absolute top-0 left-0 w-[210mm] opacity-0 pointer-events-none p-[20mm] bg-white text-justify"
         style={{ zIndex: -1000 }}
       >
-        {sortedSections.map(section => (
+        {sanitizedSections.map(section => (
            <div key={`measure-${section.id}`}>
               <h1 id={section.id} className="chapter-start text-2xl font-bold text-black mt-0 mb-6 pb-2 border-b-2 border-gray-800 uppercase">
                 {section.title}
@@ -233,7 +265,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
             <div className="A4-page" style={A4_PAGE_STYLE}>
               <div style={PAGE_CONTENT_STYLE} className="flex flex-col justify-center items-center text-center">
                 <div className="w-full">
-                  <h1 className="text-5xl font-bold text-gray-800">{projectName}</h1>
+                  <h1 className="text-5xl font-bold text-gray-800">{sanitizedProjectName}</h1>
                   <p className="text-2xl mt-4 text-gray-600">Plano de Negócios</p>
                 </div>
               </div>
@@ -251,7 +283,7 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
               <div style={PAGE_CONTENT_STYLE}>
                 <h1 className="text-2xl font-bold mb-8 uppercase border-b-2 border-gray-800 pb-2">Sumário</h1>
                 <ul className="space-y-3 text-sm">
-                  {sortedSections.map(section => {
+                  {sanitizedSections.map(section => {
                     const pageNumber = paginatedData?.tocMap[section.id];
                     return (
                       <li key={`toc-${section.id}`} className="flex justify-between items-baseline">
@@ -271,11 +303,12 @@ export const LiveDocumentPreview: React.FC<LiveDocumentPreviewProps> = ({ projec
             
             {/* --- Content Pages --- */}
             {paginatedData?.pages.map((pageHtml, index) => {
-              const terms = getTermsOnPage(pageHtml);
+              const safePageHtml = sanitizeForExternalDoc(pageHtml);
+              const terms = getTermsOnPage(safePageHtml);
               const pageNumber = index + 1 + 2;
               return (
                 <div key={`page-${index}`} className="A4-page" style={A4_PAGE_STYLE}>
-                  <div style={PAGE_CONTENT_STYLE} dangerouslySetInnerHTML={{ __html: pageHtml }} />
+                  <div style={PAGE_CONTENT_STYLE} dangerouslySetInnerHTML={{ __html: safePageHtml }} />
                   <div style={PAGE_FOOTER_STYLE}>
                     <span className="text-xs text-gray-500">Confidencial</span>
                     {/* FIX: Classe 'truncate' removida para permitir a quebra de linha (wrap) do glossário. */}

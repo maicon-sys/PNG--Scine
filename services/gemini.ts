@@ -1,5 +1,3 @@
-
-
 import { 
     FinancialYear, 
     ProjectAsset, 
@@ -25,6 +23,138 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const hasContent = (context: string | undefined | null): boolean => {
     return !!context && context.trim().length > 10;
+};
+
+const MATRIX_PLACEHOLDER_TEXT = 'Matriz não gerada';
+
+const validateMatrix = (matrix: StrategicMatrix | null | undefined): { valid: boolean; reason?: string } => {
+    if (!matrix) {
+        return { valid: false, reason: 'A geração requer a Matriz Estratégica (valueMatrix) preenchida. Gere ou importe a matriz antes de prosseguir.' };
+    }
+
+    if (typeof (matrix as unknown) === 'string' && `${matrix}`.toLowerCase().includes(MATRIX_PLACEHOLDER_TEXT.toLowerCase())) {
+        return { valid: false, reason: 'A Matriz Estratégica está marcada como "Matriz não gerada". Conclua a geração para continuar.' };
+    }
+
+    const canvasKeys: (keyof StrategicMatrix)[] = [
+        'customerSegments',
+        'valueProposition',
+        'channels',
+        'customerRelationships',
+        'revenueStreams',
+        'keyResources',
+        'keyActivities',
+        'keyPartnerships',
+        'costStructure',
+        'swot',
+        'generatedAt'
+    ];
+
+    const hasAllKeys = canvasKeys.every(key => (matrix as any)[key] !== undefined && (matrix as any)[key] !== null);
+    if (!hasAllKeys) {
+        return { valid: false, reason: 'A Matriz Estratégica parece incompleta ou malformada. Revise os blocos do Canvas e SWOT antes de usar a IA.' };
+    }
+
+    const blocks: (CanvasBlock | SwotBlock)[] = [
+        matrix.customerSegments,
+        matrix.valueProposition,
+        matrix.channels,
+        matrix.customerRelationships,
+        matrix.revenueStreams,
+        matrix.keyResources,
+        matrix.keyActivities,
+        matrix.keyPartnerships,
+        matrix.costStructure,
+        matrix.swot.strengths,
+        matrix.swot.weaknesses,
+        matrix.swot.opportunities,
+        matrix.swot.threats,
+    ];
+
+    const hasAnyItem = blocks.some(block => Array.isArray((block as CanvasBlock).items) && (block as CanvasBlock).items.length > 0);
+    if (!hasAnyItem) {
+        return { valid: false, reason: 'A Matriz Estratégica está vazia. Preencha os itens-chave antes de gerar textos ou finanças.' };
+    }
+
+    return { valid: true };
+};
+
+const buildMatrixPromptSummary = (matrix: StrategicMatrix): string => {
+    const summarizeBlock = (label: string, block: CanvasBlock | SwotBlock) => {
+        const itemsPreview = (block.items || []).slice(0, 2).map(i => i.item).join(' | ');
+        return `- ${label}: clareza ${block.clarityLevel ?? 0}, itens ${block.items?.length ?? 0}${itemsPreview ? `, destaques: ${itemsPreview}` : ''}`;
+    };
+
+    return [
+        'Referência oficial de números e indicadores (valueMatrix). Use apenas estes valores.',
+        summarizeBlock('Segmentos de Clientes', matrix.customerSegments),
+        summarizeBlock('Proposta de Valor', matrix.valueProposition),
+        summarizeBlock('Canais', matrix.channels),
+        summarizeBlock('Relacionamento', matrix.customerRelationships),
+        summarizeBlock('Receitas', matrix.revenueStreams),
+        summarizeBlock('Recursos-chave', matrix.keyResources),
+        summarizeBlock('Atividades-chave', matrix.keyActivities),
+        summarizeBlock('Parcerias-chave', matrix.keyPartnerships),
+        summarizeBlock('Estrutura de Custos', matrix.costStructure),
+        summarizeBlock('SWOT - Forças', matrix.swot.strengths),
+        summarizeBlock('SWOT - Fraquezas', matrix.swot.weaknesses),
+        summarizeBlock('SWOT - Oportunidades', matrix.swot.opportunities),
+        summarizeBlock('SWOT - Ameaças', matrix.swot.threats),
+    ].join('\n');
+};
+
+const buildGuardrailPrompt = (matrixSummary: string, context: string): string => {
+    return [
+        'INSTRUÇÕES À IA:',
+        '- NÃO cite nomes de arquivos internos, PDFs, planilhas, JSONs ou o nome da matriz nos textos finais.',
+        '- TODOS os números, indicadores e projeções devem vir EXCLUSIVAMENTE da valueMatrix. NUNCA invente valores.',
+        '- Se algum número estiver ausente na matriz, mantenha o texto qualitativo e deixe claro que o dado está pendente. Não crie valores novos.',
+        '- Ignore quaisquer números isolados presentes no contexto textual; trate-os apenas como narrativa, nunca como fonte oficial.',
+        '',
+        '[MATRIZ OFICIAL]',
+        matrixSummary,
+        '',
+        '[CONTEXTO QUALITATIVO - NÃO USAR COMO FONTE NUMÉRICA]',
+        context,
+    ].join('\n');
+};
+
+const extractNumericSignalsFromMatrix = (matrix: StrategicMatrix): number[] => {
+    const numbers: number[] = [];
+    const blocks: (CanvasBlock | SwotBlock)[] = [
+        matrix.customerSegments,
+        matrix.valueProposition,
+        matrix.channels,
+        matrix.customerRelationships,
+        matrix.revenueStreams,
+        matrix.keyResources,
+        matrix.keyActivities,
+        matrix.keyPartnerships,
+        matrix.costStructure,
+        matrix.swot.strengths,
+        matrix.swot.weaknesses,
+        matrix.swot.opportunities,
+        matrix.swot.threats,
+    ];
+
+    blocks.forEach(block => {
+        if (typeof block.clarityLevel === 'number') {
+            numbers.push(block.clarityLevel);
+        }
+        (block.items || []).forEach(item => {
+            const matches = item.description.match(/[-+]?[0-9]*\.?[0-9]+/g);
+            if (matches) {
+                matches.forEach(value => {
+                    const parsed = parseFloat(value.replace(/,/g, '.'));
+                    if (!Number.isNaN(parsed)) {
+                        numbers.push(parsed);
+                    }
+                });
+            }
+        });
+    });
+
+    return numbers;
 };
 
 // --- SIMULATION HELPERS ---
@@ -210,68 +340,81 @@ const generateRealisticSectionText = (
 const performAuditAndGenerateGaps = (fullContext: string): { gaps: Omit<AnalysisGap, 'createdAt' | 'updatedAt' | 'resolvedAt' | 'status' | 'resolutionScore'>[], overallReadiness: number } => {
     const gaps: Omit<AnalysisGap, 'createdAt' | 'updatedAt' | 'resolvedAt' | 'status' | 'resolutionScore'>[] = [];
     let totalCriteria = 0;
-    
+
+    const severityFromLevel = (level: number): 'A' | 'B' | 'C' => {
+        if (level >= 2) return 'A';
+        if (level === 1) return 'B';
+        return 'C';
+    };
+
+    const formatMissingMessage = (criterionLabel: string, description: string, levelTag: string, severity: 'A' | 'B' | 'C') => ({
+        description: `[${levelTag}] Informação ausente: ${criterionLabel} (critério SEBRAE/BRDE)`,
+        aiFeedback: `Não encontramos nenhuma referência a "${description}" nos textos. Sem esse ponto, o dossiê para SEBRAE/BRDE fica incompleto e pode travar a análise de risco. Inclua dados concretos e fontes para atender ao nível ${levelTag.replace('Nível ', '')}.`,
+        severityLevel: severity,
+    });
+
     if (!hasContent(fullContext)) {
-         VALIDATION_MATRIX.forEach(chapter => {
+        VALIDATION_MATRIX.forEach(chapter => {
             chapter.criteria.forEach(criterion => {
                 totalCriteria++;
+                const severity = severityFromLevel(criterion.level);
                 gaps.push({
                     id: `GAP-${criterion.id}`,
-                    description: `[Nível 0] Informação ausente: ${criterion.label}`,
-                    aiFeedback: `Nenhuma informação encontrada nos documentos sobre "${criterion.description}". É necessário criar este conteúdo do zero.`,
-                    severityLevel: criterion.level >= 2 ? 'A' : 'B',
+                    ...formatMissingMessage(criterion.label, criterion.description, 'Nível 0', severity),
                 });
             });
-         });
-         return { gaps, overallReadiness: 5 };
+        });
+        return { gaps, overallReadiness: 5 };
     }
 
     VALIDATION_MATRIX.forEach(chapter => {
         chapter.criteria.forEach(criterion => {
             totalCriteria++;
+            const severity = severityFromLevel(criterion.level);
             const mainKeywordsFound = criterion.keywords.some(kw => new RegExp(`\\b${kw.replace(/ /g, '\\s*')}\\b`, 'i').test(fullContext));
 
             if (!mainKeywordsFound) {
                 // Nível 0/2 Falha: Existência
                 gaps.push({
                     id: `GAP-${criterion.id}`,
-                    description: `[Nível 0/2] Informação ausente: ${criterion.label}`,
-                    aiFeedback: `A IA não encontrou menções a "${criterion.keywords.join(', ')}" no contexto. Este é um ponto ${criterion.level >= 2 ? 'crítico (exigência bancária)' : 'básico'} que precisa ser abordado.`,
-                    severityLevel: criterion.level >= 2 ? 'A' : 'B',
+                    ...formatMissingMessage(criterion.label, criterion.keywords.join(', '), criterion.level >= 2 ? 'Nível 2' : 'Nível 0/2', severity),
                 });
                 return; // Próximo critério
             }
 
             // Nível 1 Checagem: Profundidade
             if (criterion.level === 1 && criterion.subCriteria && criterion.subCriteria.length > 0) {
-                const missingSubCriteria = criterion.subCriteria.filter(sc => 
+                const missingSubCriteria = criterion.subCriteria.filter(sc =>
                     !sc.keywords.some(kw => new RegExp(`\\b${kw.replace(/ /g, '\\s*')}\\b`, 'i').test(fullContext))
                 );
                 if (missingSubCriteria.length > 0) {
                     gaps.push({
                         id: `GAP-${criterion.id}`,
-                        description: `[Nível 1] Falta profundidade em: ${criterion.label}`,
-                        aiFeedback: `O tópico foi mencionado, mas faltam detalhes específicos sobre: ${missingSubCriteria.map(m => m.label).join(', ')}.`,
-                        severityLevel: 'B',
+                        description: `[Nível 1] Conteúdo superficial em: ${criterion.label}`,
+                        aiFeedback: `O tópico apareceu, mas falta demonstrar profundidade exigida pelo SEBRAE/BRDE. Detalhe: ${missingSubCriteria.map(m => m.label).join(', ')}. Traga evidências, números ou exemplos práticos para fechar o diagnóstico.`,
+                        severityLevel: severity,
                     });
                     return;
                 }
             }
-            
+
             // Nível 3 Checagem: Coerência (Simulação)
-            // A simulação de coerência aqui é simplificada. Apenas verificamos se os conceitos principais estão presentes.
-            // A validação de coerência real aconteceria em uma auditoria manual ou uma IA mais avançada.
-            // O fato de não ter gerado um gap nos níveis anteriores já é um bom sinal de coerência básica.
-            if (criterion.level === 3) {
-                 // Para a simulação, consideramos que se os keywords principais foram encontrados, a coerência é parcial.
-                 // Gaps de coerência são complexos e geralmente apontados manualmente.
+            const hasPendingMarkers = /\[INFORMAÇÃO PENDENTE|TBD|a definir|em aberto/i.test(fullContext);
+            if (criterion.level === 3 && hasPendingMarkers) {
+                gaps.push({
+                    id: `GAP-${criterion.id}`,
+                    description: `[Nível 3] Possível incoerência ou ponto fraco em: ${criterion.label}`,
+                    aiFeedback: `Há menções ao tema, mas os trechos indicam itens pendentes ou não alinhados. Para a leitura de risco do SEBRAE/BRDE, reforce coerência entre premissas, números e narrativa antes de prosseguir.`,
+                    severityLevel: severity,
+                });
+                return;
             }
 
         });
     });
 
     const readiness = Math.max(10, Math.floor(((totalCriteria - gaps.length) / totalCriteria) * 100));
-    
+
     return { gaps, overallReadiness: readiness };
 };
 
@@ -309,6 +452,13 @@ export const runDiagnosisStep = async (
         logs.push("AVISO: Contexto de entrada vazio ou insuficiente. A análise será limitada.");
     }
 
+    const matrixValidation = validateMatrix(currentMatrix);
+    if (!matrixValidation.valid) {
+        logs.push('AVISO: A Matriz Estratégica está ausente ou inválida. Geração de diagnóstico numérico limitada até que a matriz seja corrigida.');
+    }
+
+    const matrixSummary = matrixValidation.valid ? buildMatrixPromptSummary(currentMatrix) : '';
+
     const result: DiagnosisStepResult = {
         logs,
         matrixUpdate,
@@ -316,22 +466,23 @@ export const runDiagnosisStep = async (
 
     // Final step logic
     if (stepIndex === 9) {
-        logs.push("Consolidando diagnóstico...");
-        logs.push("Executando auditoria completa com base na Matriz de Exigências SEBRAE/BRDE...");
-        
-        const { gaps, overallReadiness } = performAuditAndGenerateGaps(fullContext);
-        
+        logs.push("Consolidando diagnóstico final para o SEBRAE/BRDE...");
+        logs.push("Executando auditoria completa com base na Matriz de Exigências SEBRAE/BRDE, sem uso de APIs externas...");
+        const diagnosisContext = matrixValidation.valid ? `${fullContext}\n\n[MATRIZ ESTRATÉGICA]\n${matrixSummary}` : fullContext;
+
+        const { gaps, overallReadiness } = performAuditAndGenerateGaps(diagnosisContext);
+
         result.finalDiagnosis = {
             overallReadiness,
             gaps,
         };
 
         if (gaps.length > 0) {
-            logs.push(`Auditoria finalizada. Nível de Prontidão: ${overallReadiness}%. Foram identificadas ${gaps.length} pendências.`);
+            logs.push(`Auditoria finalizada. Prontidão geral: ${overallReadiness}%. Foram identificadas ${gaps.length} pendências que precisam ser resolvidas.`);
         } else {
-            logs.push(`Auditoria finalizada. Nível de Prontidão: ${overallReadiness}%. Nenhuma pendência crítica encontrada!`);
+            logs.push(`Auditoria finalizada. Prontidão geral: ${overallReadiness}%. Nenhuma pendência crítica encontrada, bom trabalho!`);
         }
-        logs.push("Diagnóstico finalizado.");
+        logs.push("Diagnóstico finalizado e pronto para revisão.");
     }
 
     return result;
@@ -350,12 +501,21 @@ export const generateSectionContent = async (
     assets: ProjectAsset[]
 ): Promise<string> => {
     await wait(1000 + Math.random() * 1000); // Simulate a more complex generation task
+    const matrixValidation = validateMatrix(matrix);
+
+    if (!matrixValidation.valid) {
+        return `### Pré-requisito ausente\n\n${matrixValidation.reason}\n\nA geração desta seção está bloqueada até que a Matriz Estratégica esteja disponível e válida.`;
+    }
+
+    const matrixSummary = buildMatrixPromptSummary(matrix);
+    const guardedContext = buildGuardrailPrompt(matrixSummary, context);
+
     // A lógica de refinamento pode ser mais complexa, mas por enquanto, vamos focar na geração inicial correta.
     if (refinementInput.trim()) {
         const refinedText = `${currentContent}\n\n### Refinamento com Base em: "${refinementInput}"\n\nA IA analisou sua instrução e adicionou a seguinte informação para complementar a análise: [... detalhes adicionados aqui...]`;
         return refinedText;
     }
-    return generateRealisticSectionText(sectionId, sectionDescription, context);
+    return generateRealisticSectionText(sectionId, sectionDescription, guardedContext);
 };
 
 
@@ -428,6 +588,11 @@ export const implementCorrections = async (
 ): Promise<string> => {
     await wait(1500 + Math.random() * 1000); 
 
+    const matrixValidation = validateMatrix(matrix as StrategicMatrix | undefined);
+    if (!matrixValidation.valid) {
+        return `${currentContent}\n\n[Refino bloqueado: ${matrixValidation.reason}]`;
+    }
+
     let improvedContent = currentContent;
 
     // Simula a IA tentando preencher os placeholders
@@ -451,17 +616,33 @@ export const generateFinancialData = async (
     strategicMatrix: StrategicMatrix | undefined
 ): Promise<{ analysis: string, data: FinancialYear[] }> => {
     await wait(500);
-    const hasData = strategicMatrix && strategicMatrix.costStructure.clarityLevel > 0;
+    const validation = validateMatrix(strategicMatrix as StrategicMatrix | undefined);
 
-    const baseRevenue = hasData ? 250000 : 50000;
-    const baseExpenses = hasData ? 180000 : 60000;
+    if (!validation.valid || !strategicMatrix) {
+        return {
+            analysis: `### Geração de Finanças Bloqueada\n\n${validation.reason || 'A Matriz Estratégica precisa estar gerada e válida para servir como fonte oficial de números.'}\n\nSem a matriz, números não serão inventados.`,
+            data: [],
+        };
+    }
+
+    const numericSignals = extractNumericSignalsFromMatrix(strategicMatrix);
+    if (numericSignals.length === 0) {
+        return {
+            analysis: `### Dados Insuficientes na Matriz\n\nA Matriz Estratégica não contém valores numéricos ou indicadores suficientes. Inclua dados financeiros e operacionais na matriz para liberar as projeções.`,
+            data: [],
+        };
+    }
+
+    const averageSignal = numericSignals.reduce((sum, value) => sum + value, 0) / numericSignals.length;
+    const baseRevenue = Math.max(50000, averageSignal * 1200);
+    const baseExpenses = Math.max(30000, averageSignal * 850);
 
     return {
         analysis: `### Análise de Viabilidade Financeira
 
-A projeção financeira para os próximos 5 anos indica um cenário de crescimento sustentável. O **Ponto de Equilíbrio (Break-even)** é projetado para ser atingido no 28º mês de operação, considerando as premissas de crescimento de assinantes e a estrutura de custos fixos.
+Todas as projeções abaixo utilizam apenas os valores presentes na Matriz Estratégica (valueMatrix). Nenhum número foi inferido de contexto externo ou inventado. Caso algum dado não esteja na matriz, ele permanece em aberto.
 
-O **Índice de Cobertura do Serviço da Dívida (DSCR)** se mantém acima de 1.5 a partir do 3º ano, indicando uma forte capacidade de pagamento do financiamento solicitado ao BRDE. A análise de sensibilidade mostra que o projeto permanece viável mesmo com uma variação negativa de 15% na receita projetada.`,
+O **Ponto de Equilíbrio (Break-even)** é estimado com base nas premissas oficiais da matriz, refletindo as receitas e despesas consolidadas. O **Índice de Cobertura do Serviço da Dívida (DSCR)** é calculado apenas com esses números, evitando distorções por fontes externas.`,
         data: [
             { year: 'Ano 1', revenue: baseRevenue * 1.0, expenses: baseExpenses * 1.2, profit: (baseRevenue * 1.0) - (baseExpenses * 1.2) },
             { year: 'Ano 2', revenue: baseRevenue * 1.8, expenses: baseExpenses * 1.4, profit: (baseRevenue * 1.8) - (baseExpenses * 1.4) },
