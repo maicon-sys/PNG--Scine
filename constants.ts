@@ -315,8 +315,6 @@ export const DEFAULT_METHODOLOGY = 'SEBRAE+BRDE (Metodologia Padrão)';
 const emptyCanvasBlock = { items: [], description: '', source: '', clarityLevel: 0 };
 const emptySwotBlock = { items: [], description: '', source: '', clarityLevel: 0 };
 
-// FIX: Removed invalid text from the end of the file that was causing multiple syntax errors.
-// The text 'corrija os problemas que voce encontrar no codigo --- END OF FILE ---' was appended after this constant.
 export const DEFAULT_STRATEGIC_MATRIX: StrategicMatrix = {
     customerSegments: { ...emptyCanvasBlock },
     valueProposition: { ...emptyCanvasBlock },

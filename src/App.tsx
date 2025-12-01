@@ -529,9 +529,10 @@ const App: React.FC = () => {
             .map(s => `[SEÇÃO ANTERIOR JÁ ESCRITA: ${s.title}]\n${s.content}`)
             .join('\n\n----------------\n\n');
 
-        // FIX: Corrected the arguments for generateSectionContent to match its definition (10 arguments).
+        // FIX: Corrigido bug lógico. A IA deve receber o ID da seção para encontrar as
+        // diretrizes corretas, não o título.
         const newContent = await generateSectionContent(
-            section.title,
+            section.id,
             section.description,
             methodology,
             context,
@@ -573,9 +574,10 @@ const App: React.FC = () => {
       const assets = activeProject.currentData.contextState.assets;
       const matrix = activeProject.currentData.contextState.strategicMatrix;
 
-      // FIX: Corrected the arguments for generateSectionContent to match its definition (10 arguments).
+      // FIX: Corrigido bug lógico. A IA deve receber o ID da seção para encontrar as
+      // diretrizes corretas, não o título.
       const newContent = await generateSectionContent(
-        activeSection.title,
+        activeSection.id,
         activeSection.description,
         methodology,
         context,
@@ -1231,18 +1233,20 @@ const App: React.FC = () => {
                    </div>
                 </div>
               ) : (
-                <button 
-                  onClick={handleRunDiagnosis}
-                  disabled={!matrixStatus.isReady || isDiagnosing}
-                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors flex justify-center items-center gap-2 disabled:bg-blue-300 disabled:cursor-not-allowed"
-                 >
-                   <PlayCircle className="w-4 h-4" /> Executar Diagnóstico
-                </button>
-                {!matrixStatus.isReady && (
-                  <p className="text-xs text-red-600 mt-2">
-                    {matrixStatus.reason || 'Gere a Matriz de Valores (Etapa 0) para liberar esta ação.'}
-                  </p>
-                )}
+                <>
+                  <button 
+                    onClick={handleRunDiagnosis}
+                    disabled={!matrixStatus.isReady || isDiagnosing}
+                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors flex justify-center items-center gap-2 disabled:bg-blue-300 disabled:cursor-not-allowed"
+                   >
+                     <PlayCircle className="w-4 h-4" /> Executar Diagnóstico
+                  </button>
+                  {!matrixStatus.isReady && (
+                    <p className="text-xs text-red-600 mt-2">
+                      {matrixStatus.reason || 'A matriz ainda não foi consolidada. Gere ou importe uma matriz válida.'}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>

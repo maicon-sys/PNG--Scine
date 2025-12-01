@@ -125,14 +125,14 @@ const convertMarkdownToDocx = (markdown: string, assets: ProjectAsset[]): (Parag
                 try {
                   const imageBuffer = base64ToUint8Array(asset.data);
                   elements.push(new Paragraph({
-                    // FIX: The property for image data in the installed version of the 'docx' library appears to be `buffer`, not `data`. Reverting the property name to fix the type error.
+                    // FIX: The property for binary image data in this version of the 'docx' library is 'buffer', not 'data'.
                     children: [new ImageRun({ buffer: imageBuffer, transformation: { width: 500, height: 281 } })],
                     alignment: AlignmentType.CENTER,
                     spacing: { after: 240 }
                   }));
                 } catch (e) { 
                   console.error("Erro ao processar imagem para DOCX (possivelmente Base64 inválido):", e); 
-                  // FIX: Corrected typo from `italic` to `italics`.
+                  // FIX: Corrected typo. The property for italics in 'docx' is 'italics', not 'italic'.
                   elements.push(new Paragraph({ children: [new TextRun({ text: `[Erro ao carregar imagem: ${asset.description}]`, italics: true })] }));
                 }
               }
@@ -261,7 +261,7 @@ export const generateDocx = async (projectName: string, sections: PlanSection[],
             ],
           }),
         },
-        // FIX: Removed invalid `PageBreak` objects from the children array. Page breaks are now handled by paragraph properties.
+        // FIX: Removed invalid PageBreak objects from the children array. Page breaks are now handled by paragraph properties.
         children: [
           ...titlePage,
           ...tableOfContents,
