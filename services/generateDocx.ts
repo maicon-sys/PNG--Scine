@@ -125,8 +125,8 @@ const convertMarkdownToDocx = (markdown: string, assets: ProjectAsset[]): (Parag
                 try {
                   const imageBuffer = base64ToUint8Array(asset.data);
                   elements.push(new Paragraph({
-                    // FIX: The property for binary image data in this version of the 'docx' library is 'buffer', not 'data'.
-                    children: [new ImageRun({ buffer: imageBuffer, transformation: { width: 500, height: 281 } })],
+                    // FIX: The property for binary image data in this version of the 'docx' library is 'data', not 'buffer'.
+                    children: [new ImageRun({ data: imageBuffer, transformation: { width: 500, height: 281 } })],
                     alignment: AlignmentType.CENTER,
                     spacing: { after: 240 }
                   }));

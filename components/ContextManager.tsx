@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Upload, FileText, Image as ImageIcon, Trash2, File, Loader2, UploadCloud } from 'lucide-react';
 import { AppContextState, UploadedFile, ProjectAsset, StrategicMatrix } from '../types';
-
 interface ContextManagerProps {
   state: AppContextState;
   onUpdate: (updates: Partial<AppContextState>) => void;

@@ -1,16 +1,16 @@
-import { 
-    FinancialYear, 
-    ProjectAsset, 
-    DiagnosisResponse, 
-    PlanSection, 
-    StrategicMatrix, 
-    AnalysisGap, 
-    BusinessGoal, 
-    DiagnosisStepResult, 
-    CanvasBlock, 
-    SwotBlock, 
-    MatrixItem, 
-    SectionStatus 
+import {
+    FinancialYear,
+    ProjectAsset,
+    DiagnosisResponse,
+    PlanSection,
+    StrategicMatrix,
+    AnalysisGap,
+    BusinessGoal,
+    DiagnosisStepResult,
+    CanvasBlock,
+    SwotBlock,
+    MatrixItem,
+    SectionStatus
 } from "../types";
 import { DIAGNOSIS_STEPS, DEFAULT_STRATEGIC_MATRIX, VALIDATION_MATRIX } from "../constants";
 import { generationGuidelines } from '../generationGuidelines';
@@ -114,7 +114,7 @@ const buildGuardrailPrompt = (matrixSummary: string, context: string): string =>
         '[MATRIZ OFICIAL]',
         matrixSummary,
         '',
-        '[CONTEXTO QUALITATIVO - NÃO USAR COMO FONTE NUMÉRICA]',
+        '[CONTEXTO QUALITativo - NÃO USAR COMO FONTE NUMÉRICA]',
         context,
     ].join('\n');
 };
@@ -310,7 +310,11 @@ const generateRealisticSectionText = (
         }
 
         requirements.forEach(req => {
-            const keywords = (guidelines.keywords || []).concat(req.split(/\s+/).filter(w => w.length > 4));
+            // FIX: Sanitize requirement string to remove punctuation before splitting into words.
+            // This prevents invalid characters like '(' from being passed into the RegExp constructor,
+            // fixing the "Unterminated group" crash.
+            const cleanReq = req.replace(/[().,]/g, '');
+            const keywords = (guidelines.keywords || []).concat(cleanReq.split(/\s+/).filter(w => w.length > 4));
             const chunks = extractRelevantChunks(context, keywords, 2);
             
             if (chunks.length > 0) {

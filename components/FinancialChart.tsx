@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import { FinancialYear } from '../types';
 
+
 interface FinancialChartProps {
   data: FinancialYear[];
 }
