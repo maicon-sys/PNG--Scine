@@ -14,6 +14,9 @@ import {
 } from "../types";
 import { DIAGNOSIS_STEPS, DEFAULT_STRATEGIC_MATRIX, VALIDATION_MATRIX } from "../constants";
 import { generationGuidelines } from '../generationGuidelines';
+import { buildSectionContext, SectionDoc, ValueMatrix } from './contextBuilder';
+
+
 
 // --- HIGH-FIDELITY INTERNAL AI ENGINE ---
 // This module simulates the Gemini API's behavior with realistic, context-aware responses.
@@ -118,7 +121,6 @@ const buildGuardrailPrompt = (matrixSummary: string, context: string): string =>
         context,
     ].join('\n');
 };
-
 const extractNumericSignalsFromMatrix = (matrix: StrategicMatrix): number[] => {
     const numbers: number[] = [];
     const blocks: (CanvasBlock | SwotBlock)[] = [
@@ -162,24 +164,24 @@ const extractNumericSignalsFromMatrix = (matrix: StrategicMatrix): number[] => {
 // Helper to find relevant chunks/paragraphs based on keywords
 const extractRelevantChunks = (text: string, keywords: string[], maxCount = 5): string[] => {
     if (!text || !keywords || keywords.length === 0) return [];
-    
+
     // FIX: Split by one or more newlines to handle bullet points and paragraphs.
-    const chunks = text.split(/[\r\n]+/).filter(chunk => chunk.trim() !== ''); 
+    const chunks = text.split(/[\r\n]+/).filter(chunk => chunk.trim() !== '');
     const relevantChunks: string[] = [];
     const lowerCaseKeywords = keywords.map(k => k.toLowerCase());
 
     for (const chunk of chunks) {
         if (relevantChunks.length >= maxCount) break;
-        
+
         // Clean up common system markers and trim whitespace, including list prefixes
         const trimmedChunk = chunk.trim().replace(/--- (Página|ARQUIVO).*? ---/g, '').replace(/^-|^\d\.\s*/, '').trim();
-        
+
         // Increased min length to catch more meaningful lines and filter out noise
-        if (trimmedChunk.length < 20 || trimmedChunk.length > 2000) continue; 
+        if (trimmedChunk.length < 20 || trimmedChunk.length > 2000) continue;
 
         // Use a more flexible regex to account for multiple spaces or different word orders in some cases
         const hasKeyword = lowerCaseKeywords.some(keyword => new RegExp(`\\b${keyword.replace(/ /g, '\\s*')}\\b`, 'i').test(trimmedChunk));
-        
+
         if (hasKeyword && !relevantChunks.includes(trimmedChunk)) {
             relevantChunks.push(trimmedChunk);
         }
@@ -195,7 +197,7 @@ const generateSWOTBlock = (context: string, type: 'strengths' | 'weaknesses' | '
         opportunities: ['oportunidade', 'oportunidades', 'mercado em crescimento', 'tendência', 'demanda reprimida', 'nova legislação', 'parceria estratégica', 'incentivo fiscal', 'expansão', 'financiar', 'tracionar'],
         threats: ['ameaça', 'ameaças', 'concorrência', 'risco externo', 'desafio', 'crise econômica', 'mudança regulatória', 'pirataria', 'novos players'],
     };
-    
+
     const extractedChunks = extractRelevantChunks(context, keywords[type], 5);
     let items: MatrixItem[] = [];
 
@@ -225,7 +227,7 @@ const generateSWOTBlock = (context: string, type: 'strengths' | 'weaknesses' | '
 
 const generateCanvasBlock = (context: string, type: keyof StrategicMatrix): CanvasBlock => {
     // FIX: Expanded keyword list for more accurate Canvas analysis from context
-     const keywords: Record<string, string[]> = {
+    const keywords: Record<string, string[]> = {
         customerSegments: ['cliente', 'clientes', 'público-alvo', 'público', 'segmento', 'segmentos', 'persona', 'usuário', 'usuários', 'consumidor', 'consumidores', 'mercado-alvo', 'B2C', 'B2B', 'assinantes', 'prefeituras', 'empresas', 'festivais'],
         valueProposition: ['proposta de valor', 'solução', 'diferencial', 'benefício', 'produto', 'serviço', 'vantagem', 'por que nós', 'conteúdo regional', 'HUB Audiovisual', 'Unidade Móvel', 'infraestrutura', 'coworking'],
         channels: ['canais', 'distribuição', 'venda', 'plataforma', 'marketing', 'como chegar', 'pontos de venda', 'OTT', 'HUB Físico', 'Van 4K'],
@@ -237,7 +239,7 @@ const generateCanvasBlock = (context: string, type: keyof StrategicMatrix): Canv
         customerRelationships: ['relacionamento', 'suporte', 'comunidade', 'atendimento', 'engajamento', 'fidelização'],
         swot: [] // Ignored here
     };
-    
+
     const extractedChunks = extractRelevantChunks(context, keywords[type as string] || [type as string], 5);
     let items: MatrixItem[] = [];
 
@@ -256,7 +258,7 @@ const generateCanvasBlock = (context: string, type: keyof StrategicMatrix): Canv
             confidence: 'baixa'
         });
     }
-    
+
     return {
         items,
         description: `Análise de ${type} extraída diretamente dos documentos fornecidos.`,
@@ -289,11 +291,11 @@ const generateRealisticSectionText = (
         let content = `### Análise Consolidada - ${guidelines.title}\n\n`;
         content += `A Análise de Mercado é um componente crítico deste plano de negócios, servindo para validar a demanda, reduzir a percepção de risco para financiadores como o BRDE, e fornecer uma base sólida para as projeções financeiras e decisões estratégicas.\n\n`;
         content += `Nos capítulos seguintes, serão analisadas em detalhe as dimensões essenciais do mercado, incluindo a segmentação e o perfil dos clientes (2.1, 2.2), as necessidades e oportunidades (2.3), a quantificação do mercado potencial (2.5), a análise da concorrência (2.6) e as tendências e riscos setoriais (2.7-2.11).\n\n`;
-        
+
         if (chunks.length > 0) {
             content += `Esta análise foi construída com base em pesquisas primárias realizadas com o público-alvo, estudos de mercado secundários e análises internas estratégicas. As conclusões aqui apresentadas fornecem o embasamento para o Plano de Marketing e são diretamente conectadas às projeções de assinantes e receita do Plano Financeiro.\n\n`;
         } else {
-             content += `[INFORMAÇÃO PENDENTE: Embora a estrutura da análise esteja definida, a IA não encontrou dados de suporte suficientes no contexto (pesquisas, análises de mercado) para aprofundar esta introdução. É crucial adicionar estes documentos para validar as premissas.]\n`;
+            content += `[INFORMAÇÃO PENDENTE: Embora a estrutura da análise esteja definida, a IA não encontrou dados de suporte suficientes no contexto (pesquisas, análises de mercado) para aprofundar esta introdução. É crucial adicionar estes documentos para validar as premissas.]\n`;
         }
         return content;
     }
@@ -316,7 +318,7 @@ const generateRealisticSectionText = (
             const cleanReq = req.replace(/[().,]/g, '');
             const keywords = (guidelines.keywords || []).concat(cleanReq.split(/\s+/).filter(w => w.length > 4));
             const chunks = extractRelevantChunks(context, keywords, 2);
-            
+
             if (chunks.length > 0) {
                 sectionContent += `**${req}**\n\n`;
                 sectionContent += chunks.map(chunk => `- ${chunk}`).join('\n');
@@ -441,14 +443,14 @@ export const runDiagnosisStep = async (
         logs.push("Contexto detectado. Extraindo insights reais dos documentos...");
         step.matrixTargets.forEach(target => {
             const [mainKey, subKey] = target.split('.') as [keyof StrategicMatrix, keyof StrategicMatrix['swot'] | undefined];
-            
+
             if (mainKey === 'swot' && subKey) {
-                 if (!matrixUpdate.swot) {
+                if (!matrixUpdate.swot) {
                     matrixUpdate.swot = {};
                 }
                 matrixUpdate.swot![subKey] = generateSWOTBlock(fullContext, subKey);
             } else if (mainKey !== 'swot') {
-                 (matrixUpdate as any)[mainKey] = generateCanvasBlock(fullContext, mainKey as keyof StrategicMatrix);
+                (matrixUpdate as any)[mainKey] = generateCanvasBlock(fullContext, mainKey as keyof StrategicMatrix);
             }
         });
         logs.push("Insights extraídos e aplicados à matriz.");
@@ -502,7 +504,9 @@ export const generateSectionContent = async (
     currentContent: string,
     refinementInput: string,
     matrix: StrategicMatrix,
-    assets: ProjectAsset[]
+    assets: ProjectAsset[],
+    docs: SectionDoc[] = [],
+    valueMatrix: ValueMatrix = {}
 ): Promise<string> => {
     await wait(1000 + Math.random() * 1000); // Simulate a more complex generation task
     const matrixValidation = validateMatrix(matrix);
@@ -512,7 +516,16 @@ export const generateSectionContent = async (
     }
 
     const matrixSummary = buildMatrixPromptSummary(matrix);
-    const guardedContext = buildGuardrailPrompt(matrixSummary, context);
+
+    // FEATURE: Usar buildSectionContext para montar contexto específico da seção
+    const sectionContext = buildSectionContext({
+        sectionId,
+        fullContext: context,
+        docs,
+        valueMatrix,
+    });
+
+    const guardedContext = buildGuardrailPrompt(matrixSummary, sectionContext);
 
     // A lógica de refinamento pode ser mais complexa, mas por enquanto, vamos focar na geração inicial correta.
     if (refinementInput.trim()) {
@@ -533,7 +546,7 @@ export const runTopicValidation = async (
     await wait(800 + Math.random() * 400);
 
     const corrections: string[] = [];
-    
+
     // Validação agora verifica se os placeholders de informação pendente existem
     if (topicText.includes("[INFORMAÇÃO PENDENTE")) {
         corrections.push(
@@ -542,12 +555,12 @@ export const runTopicValidation = async (
     }
 
     // Checagem de profundidade mínima
-    if (topicText.length < 500) { 
+    if (topicText.length < 500) {
         corrections.push(
             '**Aprofundar:** O conteúdo parece superficial. Após preencher as informações pendentes, considere expandir a análise com mais detalhes e justificativas para cada ponto.'
         );
     }
-    
+
     // Se não houver correções, a validação é positiva
     if (corrections.length === 0) {
         return `
@@ -590,7 +603,7 @@ export const implementCorrections = async (
     context: string,
     matrix: StrategicMatrix | null
 ): Promise<string> => {
-    await wait(1500 + Math.random() * 1000); 
+    await wait(1500 + Math.random() * 1000);
 
     const matrixValidation = validateMatrix(matrix as StrategicMatrix | undefined);
     if (!matrixValidation.valid) {
@@ -601,7 +614,7 @@ export const implementCorrections = async (
 
     // Simula a IA tentando preencher os placeholders
     const placeholderRegex = /\[INFORMAÇÃO PENDENTE:.*?\]/g;
-    
+
     improvedContent = improvedContent.replace(placeholderRegex, (match) => {
         // Tenta encontrar um chunk relevante no contexto para substituir o placeholder
         const keywords = ['dado', 'pesquisa', 'número', 'estatística', 'fonte'];
@@ -683,7 +696,7 @@ export const updateMatrixFromApprovedContent = async (
         severity: 'baixo',
         confidence: 'alta'
     };
-    
+
     // Creates a deep copy to avoid mutation issues
     const newMatrixUpdate: Partial<StrategicMatrix> = {
         valueProposition: JSON.parse(JSON.stringify(currentMatrix.valueProposition || { items: [] }))
@@ -694,7 +707,7 @@ export const updateMatrixFromApprovedContent = async (
         newMatrixUpdate.valueProposition.clarityLevel = Math.min(100, (newMatrixUpdate.valueProposition.clarityLevel || 60) + 5);
         newMatrixUpdate.valueProposition.source = `Retroalimentação - ${sectionTitle}`;
     }
-    
+
     return newMatrixUpdate;
 };
 
@@ -707,7 +720,7 @@ export const validateCompletedSections = async (
 
     const sectionsToValidate = sections
         .filter(s => s.status === SectionStatus.COMPLETED || s.status === SectionStatus.REVIEW_ALERT);
-    
+
     if (sectionsToValidate.length === 0) return [];
 
     return sectionsToValidate.map((s, index) => {
@@ -729,10 +742,10 @@ export const validateCompletedSections = async (
 
 // FEATURE: Nova função para reavaliar uma pendência específica do diagnóstico.
 export const reevaluateGap = async (
-  originalGap: AnalysisGap,
-  userText: string,
-  newFilesContent: string[],
-  fullContext: string
+    originalGap: AnalysisGap,
+    userText: string,
+    newFilesContent: string[],
+    fullContext: string
 ): Promise<{ updatedFeedback: string; newResolutionScore: number; newStatus: 'OPEN' | 'RESOLVED' | 'PARTIAL'; readinessAdjustment: number }> => {
     await wait(1500 + Math.random() * 500);
 
@@ -746,7 +759,7 @@ export const reevaluateGap = async (
             readinessAdjustment: 0
         };
     }
-    
+
     // Simulação de IA: Se o usuário forneceu qualquer coisa, consideramos resolvido.
     // Numa implementação real, a IA analisaria o conteúdo.
     const lowerDesc = originalGap.description.toLowerCase();
@@ -758,7 +771,7 @@ export const reevaluateGap = async (
     } else {
         feedback = "Informação recebida. A IA processou os novos dados e considerou esta pendência como resolvida.";
     }
-    
+
     const readinessAdjustment = originalGap.severityLevel === 'A' ? 15 : 10;
 
     return {
